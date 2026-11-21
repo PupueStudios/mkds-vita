@@ -4,6 +4,9 @@ This is a native PS Vita port of Mario Kart DS, made from the Mario Kart DS deco
 the game's own code (in `game/`) runs directly on the Vita, and the parts of the DS it relies on (graphics, sound,
 timers, save chip, wireless and so on) are rebuilt in `platform/`. The 3D is drawn by the Vita's GPU.
 
+> [!CAUTION]
+> This project was made with AI assistance.
+
 There's no game data in here, so you'll need your own copy of the game.
 
 ## What you need
