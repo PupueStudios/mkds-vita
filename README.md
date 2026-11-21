@@ -1,4 +1,4 @@
-# Mario Kart DS for PS Vita
+# Mario Kart DS Vita
 
 This is a native PS Vita port of Mario Kart DS, made from the Mario Kart DS decompilation. It's not an emulator:
 the game's own code (in `game/`) runs directly on the Vita, and the parts of the DS it relies on (graphics, sound,
