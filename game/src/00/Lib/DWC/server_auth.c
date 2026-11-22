@@ -271,6 +271,11 @@ s32 ParseAuthHttpResult(void) {
                 return 0xe;
             }
             gAuth->mCreateParams.mFree(bmworkName, bmworkBlock, 0);
+#ifdef PLATFORM_PORT
+            if (gAuth->mToken[0] == 0) {
+                return 0x15;
+            }
+#endif
         }
         return 0x14;
     }

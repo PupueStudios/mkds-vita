@@ -154,7 +154,11 @@ int DWC_Acc_FriendKeyToGsProfileId(u64 friendkey, u32 gamecode) {
 #pragma thumb on
 
 void FormatFriendKey(u32 low, u32 high, u32 buffer) {
+#ifdef PLATFORM_PORT
+    OS_SNPrintf((char *) buffer, 0xd, "%012llu", (u64) high << 32 | low);
+#else
     OS_SNPrintf((char *) buffer, 0xd, "%012llu", low, high);
+#endif
 }
 
 #pragma thumb off

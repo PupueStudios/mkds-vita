@@ -66,8 +66,7 @@ static uint32_t resolve(const char *name) {
     char host[256];
     lookup_name(name, host, sizeof(host));
     uint32_t ip = hapi_resolve(host);
-    if (ip) port_log("Online: %s is %u.%u.%u.%u", host, ip >> 24, (ip >> 16) & 255, (ip >> 8) & 255, ip & 255);
-    else port_log("Online: cannot find %s", host);
+    if (!ip) port_log("Online: cannot find %s", host);
     return ip;
 }
 
@@ -95,8 +94,7 @@ s32 DWC_AC_Process(void) {
     if (s_ac == AC_WAITING) {
         if (go_online()) {
             s_ac = AC_DONE;
-            port_log("Online: connected as %u.%u.%u.%u", s_my_ip >> 24, (s_my_ip >> 16) & 255, (s_my_ip >> 8) & 255,
-                     s_my_ip & 255);
+            port_log("Online: connected");
         } else if (hapi_now_ns() - s_ac_start > 20000000000ull) {
             s_ac = AC_FAILED;
             port_log("Online: the Vita is not connected to the internet");

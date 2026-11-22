@@ -31,4 +31,10 @@ void DWCi_SetError(s32 error, s32 errorCode) {
         stDwcLastError = error;
         stDwcErrorCode = errorCode;
     }
+#ifdef PLATFORM_PORT
+    {
+        extern void port_log(const char *fmt, ...);
+        if (error != 0) port_log("Online: error %d", (int) (errorCode < 0 ? -errorCode : errorCode));
+    }
+#endif
 }

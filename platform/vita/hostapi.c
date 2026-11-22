@@ -386,8 +386,6 @@ void hapi_net_mac(uint8_t *mac) {
         s_mac[0] = 0x00, s_mac[1] = 0x09, s_mac[2] = 0xbf;
         s_mac[3] = (uint8_t) (h >> 16), s_mac[4] = (uint8_t) (h >> 8), s_mac[5] = (uint8_t) h;
         s_have = true;
-        port_log("Wi-Fi address: %02x:%02x:%02x:%02x:%02x:%02x", s_mac[0], s_mac[1], s_mac[2], s_mac[3], s_mac[4],
-                 s_mac[5]);
     }
     memcpy(mac, s_mac, 6);
 }
