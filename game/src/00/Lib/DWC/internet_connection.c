@@ -47,7 +47,7 @@ void DWC_SetAuthServer(s32 type) {
             DWC_Auth_SetCustomNas("https://nas.dev.nintendowifi.net/ac");
             break;
         case DWC_CONNECTINET_AUTH_RELEASE:
-            DWC_Auth_SetCustomNas("https://nas.nintendowifi.net/ac");
+            DWC_Auth_SetCustomNas("http://nas.wiimmfi.de/ac");
             break;
     }
 }

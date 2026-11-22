@@ -44,6 +44,19 @@ WiFiStateCallbacks gWiFiTopMenuCallbacks = {InitWiFiTopMenu, ClearWiFiTopMenuPoi
                                             WriteWiFiTopMenuRegisters};
 WiFiTopMenu *gWiFiTopMenu;
 
+#ifdef PLATFORM_PORT
+#define WIFI_TOP_MENU_ITEM_LAST WIFI_TOP_MENU_ITEM_AIKOTOBA
+static void HideWiFiTopMenuSettingsItem(void) {
+    s32 cellIndex;
+    for (cellIndex = 0; cellIndex < gWiFiTopMenuOffsetCellCounts[WIFI_TOP_MENU_ITEM_WIFI_MENU]; cellIndex++) {
+        gWiFiTopMenu->mWiFiTopMenuTable[gWiFiTopMenuOffsetTableIndices[WIFI_TOP_MENU_ITEM_WIFI_MENU][cellIndex]]
+            .mOffsetX = WIFI_TOP_MENU_OFFSET_HIDDEN;
+    }
+}
+#else
+#define WIFI_TOP_MENU_ITEM_LAST WIFI_TOP_MENU_ITEM_WIFI_MENU
+#endif
+
 void InitWiFiTopMenu(void *heap) {
     s32 index;
     s32 rowIndex;
@@ -63,7 +76,7 @@ void InitWiFiTopMenu(void *heap) {
             gWiFiTopMenu->mIndex = WIFI_TOP_MENU_ITEM_AIKOTOBA;
             break;
         case WIFI_STATE_SCENE_WIFI_MENU:
-            gWiFiTopMenu->mIndex = WIFI_TOP_MENU_ITEM_WIFI_MENU;
+            gWiFiTopMenu->mIndex = WIFI_TOP_MENU_ITEM_LAST;
             break;
     }
     gWiFiTopMenu->mStateFrames = 0;
@@ -201,7 +214,7 @@ void AdvanceWiFiTopMenuBrowse(void) {
     return;
 next:
     pressedKeys = gInputSlots[slotIndex].mPressedBits & PAD_KEY_A;
-    if ((u16) pressedKeys != 0 || hitIndex <= 2) {
+    if ((u16) pressedKeys != 0 || hitIndex <= WIFI_TOP_MENU_ITEM_LAST) {
         previousIndex = gWiFiTopMenu->mIndex;
         if ((u16) pressedKeys == 0) {
             switch (hitIndex) {
@@ -240,12 +253,12 @@ next:
         if (GetNewOrRepeatBits(8, PAD_KEY_UP) != 0) {
             gWiFiTopMenu->mIndex--;
             if (gWiFiTopMenu->mIndex < 0) {
-                gWiFiTopMenu->mIndex = WIFI_TOP_MENU_ITEM_WIFI_MENU;
+                gWiFiTopMenu->mIndex = WIFI_TOP_MENU_ITEM_LAST;
             }
             StartSoundOncePerFrame(0);
         } else if (GetNewOrRepeatBits(8, PAD_KEY_DOWN) != 0) {
             gWiFiTopMenu->mIndex++;
-            if (gWiFiTopMenu->mIndex > WIFI_TOP_MENU_ITEM_WIFI_MENU) {
+            if (gWiFiTopMenu->mIndex > WIFI_TOP_MENU_ITEM_LAST) {
                 gWiFiTopMenu->mIndex = WIFI_TOP_MENU_ITEM_VS;
             }
             StartSoundOncePerFrame(0);
@@ -433,6 +446,9 @@ void AdvanceWiFiTopMenu(void) {
             break;
     }
     UpdateWiFiTopMenuHighlight();
+#ifdef PLATFORM_PORT
+    HideWiFiTopMenuSettingsItem();
+#endif
     wiFiTopMenu = gWiFiTopMenu;
     DrawLayoutTable(wiFiTopMenu->mWiFiTopMenuBncl, wiFiTopMenu->mWiFiTopMenuSNcer, NULL, GetWiFiMenuSubOamList(),
                     wiFiTopMenu->mWiFiTopMenuTable);

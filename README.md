@@ -29,9 +29,24 @@ The controls are the same as on the DS: Circle, Cross, Triangle and Square are A
 the pad), the D-pad or left stick steers, and L, R, START and SELECT work as usual. Hold SELECT to blow up your
 balloons in Balloon Battle. The front touch screen is the DS touch screen.
 
-There are two extras:
+In races the race fills the screen and the bottom screen becomes a HUD over it, like a console Mario Kart: the
+racers list under the item box, the time at the top, the map in the lower right corner, and the pause menu in the
+middle. Touching them works like touching the DS's bottom screen. Outside races you get the big screen with the
+small one in the corner.
+
+There are a few extras:
 - **SELECT + R** swaps the top and bottom screens.
-- **SELECT + L** switches between showing both screens and just one.
+- **SELECT + L** switches between that and showing just one screen.
+- **Touch the top left corner** of the screen to open the settings. There you can turn on anti-aliasing (2x or 4x)
+  to smooth the jagged edges of the 3D, and pick the race screen: **HUD** (the race fills the screen) or **Classic**
+  (the big screen with the small one in the corner, like outside races). The game pauses while the settings are
+  open; tap Back, tap outside the box or press Circle to go back.
+
+## Playing online
+Nintendo WFC works out of the box through [Wiimmfi](https://wiimmfi.de), the community server that keeps DS online
+play alive. Just connect your Vita to Wi-Fi and pick Nintendo WFC in the game: there's nothing to set up, the game
+uses the Vita's own connection, so the game's Nintendo WFC Settings option is gone. The first time, the game creates your Wiimmfi account and remembers it in
+`ux0:data/mkds/wfc.bin`, so keep that file if you move your save to another Vita.
 
 ## Files
 | Where | What |
@@ -39,13 +54,15 @@ There are two extras:
 | `ux0:data/mkds/rom.nds` | your ROM |
 | `ux0:data/mkds/mkds.sav` | your save (nickname, records, ghosts, missions) |
 | `ux0:data/mkds/language.txt` | the language you picked last |
+| `ux0:data/mkds/settings.txt` | your settings (anti-aliasing, race screen) |
+| `ux0:data/mkds/wfc.bin` | your Nintendo WFC (Wiimmfi) account |
 | `ux0:data/mkds/mkds.log` | a short log of the last startup, plus any errors |
 
 If something goes wrong, the log and any crash dump in `ux0:data/` (a `.psp2dmp` file) are the best things to share.
 
 ## Building it yourself
-You'll need [VitaSDK](https://vitasdk.org) with the vitaGL, vitaShaRK, libmathneon and SceShaccCgExt packages
-(install them with `vdpm`), clang 17 or newer with the ARM target, CMake 3.22 or newer, and Ninja.
+You'll need [VitaSDK](https://vitasdk.org) with the vitaShaRK, libmathneon and SceShaccCgExt packages
+(install them with `vdpm`; vitaGL comes with the source in `vita/vitagl` and is built with anti-aliasing support), clang 17 or newer with the ARM target, CMake 3.22 or newer, and Ninja.
 
 ```bash
 export VITASDK=/usr/local/vitasdk

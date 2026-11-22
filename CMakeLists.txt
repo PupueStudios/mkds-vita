@@ -36,11 +36,28 @@ foreach(SRC ${GAME_SOURCES})
     endif()
 endforeach()
 
+# ------------------------------------------------------------------ vitaGL, built with MSAA render targets
+set(VGL_SRC ${R}/vita/vitagl)
+set(VGL_DIR ${CMAKE_BINARY_DIR}/vitagl)
+file(GLOB_RECURSE VGL_FILES CONFIGURE_DEPENDS ${VGL_SRC}/source/*)
+add_custom_command(OUTPUT ${VGL_DIR}/libvitaGL.a
+    COMMAND ${CMAKE_COMMAND} -E rm -rf ${VGL_DIR}
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${VGL_SRC} ${VGL_DIR}
+    COMMAND ${CMAKE_COMMAND} -E env PATH=${VITASDK}/bin:$ENV{PATH}
+        make -C ${VGL_DIR} -j8 NO_DEBUG=1 HAVE_ACCURATE_MSAA=1
+    DEPENDS ${VGL_FILES} ${VGL_SRC}/Makefile
+    COMMENT "Building vitaGL")
+add_custom_target(vitagl_build DEPENDS ${VGL_DIR}/libvitaGL.a)
+add_library(vitagl_msaa STATIC IMPORTED)
+set_target_properties(vitagl_msaa PROPERTIES IMPORTED_LOCATION ${VGL_DIR}/libvitaGL.a)
+add_dependencies(vitagl_msaa vitagl_build)
+
 # ------------------------------------------------------------------ the DS platform layer and the Vita executable
 file(GLOB PLATFORM_CORE CONFIGURE_DEPENDS ${P}/*.c)
 file(GLOB VITA_SOURCES CONFIGURE_DEPENDS ${P}/vita/*.c)
 file(GLOB GL_SOURCES CONFIGURE_DEPENDS ${P}/gl/*.c)
 add_executable(mkds ${PLATFORM_CORE} ${P}/hostside/direct.c ${VITA_SOURCES} ${GL_SOURCES})
+target_include_directories(mkds BEFORE PRIVATE ${VGL_SRC}/source)
 target_include_directories(mkds PRIVATE ${R}/include ${P}/include ${P} ${P}/gl)
 target_compile_definitions(mkds PRIVATE version_EUR PORT_PLATFORM_LAYER PORT_GUEST_STACK=524288)
 target_compile_options(mkds PRIVATE -O2 -fno-strict-aliasing -fwrapv -Wall -Wno-unused-function -std=gnu11)
@@ -52,7 +69,7 @@ target_link_options(mkds PRIVATE -Wl,--no-undefined -Wl,--no-wchar-size-warning 
 target_link_libraries(mkds PRIVATE
     -Wl,--whole-archive game -Wl,--no-whole-archive
     vita2d_vgl freetype png bz2 z ScePgf_stub ScePvf_stub
-    vitaGL vitashark SceShaccCgExt mathneon taihen_stub SceShaccCg_stub
+    vitagl_msaa vitashark SceShaccCgExt mathneon taihen_stub SceShaccCg_stub
     SceKernelDmacMgr_stub SceGxm_stub SceDisplay_stub SceCommonDialog_stub SceAppUtil_stub SceAppMgr_stub
     SceSysmodule_stub SceCtrl_stub SceTouch_stub SceAudio_stub ScePower_stub SceNet_stub SceNetCtl_stub
     SceRtc_stub SceIofilemgr_stub SceLibKernel_stub SceKernelThreadMgr_stub SceRazorCapture_stub

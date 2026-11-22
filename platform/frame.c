@@ -19,6 +19,8 @@ void (*g_frame_ready_hook)(void);
 // Tests: when set, each captured frame posts `ready` and waits for `done` (host semaphores).
 void *g_lockstep_ready, *g_lockstep_done;
 
+uint8_t g_port_hud_oam_pending[2], g_port_hud_oam[2], g_port_hud_fresh;
+
 #define BUFFERS 7
 static FrameSnapshot s_buffers[BUFFERS];
 static int s_write = 0;
@@ -111,6 +113,10 @@ static void capture(FrameSnapshot *f, int index) {
     f->list3d_held = false;
 #endif
     f->scene = (uint8_t) GetCurrentSceneNumber();
+    f->hud_ok = g_port_hud_fresh > 0;
+    if (g_port_hud_fresh) g_port_hud_fresh--;
+    f->hud_oam[0] = f->hud_ok ? g_port_hud_oam[0] : 0;
+    f->hud_oam[1] = f->hud_ok ? g_port_hud_oam[1] : 0;
     static int s_prev_top = -1;
     static uint32_t s_streak;
     int a_top = (f->io[0x305] & 0x80) != 0;

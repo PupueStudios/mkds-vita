@@ -11,4 +11,5 @@ uint32_t gl3d_render(const Gx3dFrame *frame, const Gx3dFrame *prev, float t, con
 bool gl3d_gpu_vertices_supported(void);
 bool gl3d_meshes_supported(void);
 void gl3d_use_target(int slot);
+void gl3d_set_msaa(int samples);
 void gl3d_capture_layer(const Gx3dFrame *frame, const FrameSnapshot *snap, uint32_t *out);

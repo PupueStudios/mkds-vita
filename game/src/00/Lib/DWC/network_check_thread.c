@@ -180,7 +180,7 @@ void DWCi_Netcheck_Thread(void) {
                     gHttpParam.mAlloc = gNetcheck->mParam.mAlloc;
                     gHttpParam.mFree = gNetcheck->mParam.mFree;
                     gHttpParam.mTimeoutMillis = NETCHECK_HTTP_TIMEOUT_MILLIS;
-                    if (strcmp(gHttpParam.mUrl, "https://nas.nintendowifi.net/ac") != 0) {
+                    if (strcmp(gHttpParam.mUrl, "http://nas.wiimmfi.de/ac") != 0) {
                         gHttpParam.mIgnoreCa = TRUE;
                     }
                     if (DWC_Http_Create(gHttp, &gHttpParam) != 0) {
@@ -298,7 +298,7 @@ void DWCi_Netcheck_Thread(void) {
         gHttpParam.mAlloc = gNetcheck->mParam.mAlloc;
         gHttpParam.mFree = gNetcheck->mParam.mFree;
         gHttpParam.mTimeoutMillis = NETCHECK_HTTP_LONG_TIMEOUT_MILLIS;
-        if (strcmp(gHttpParam.mUrl, "https://nas.nintendowifi.net/ac") != 0) {
+        if (strcmp(gHttpParam.mUrl, "http://nas.wiimmfi.de/ac") != 0) {
             gHttpParam.mIgnoreCa = TRUE;
         }
         if (DWC_Http_Create(gHttp, &gHttpParam) != 0) {

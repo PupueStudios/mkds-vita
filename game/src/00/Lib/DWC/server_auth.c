@@ -39,7 +39,7 @@ char *gLangPairValues[7] = {gLangPairValue00, gLangPairValue01, gLangPairValue02
                             gLangPairValue03, gLangPairValue04, gLangPairValue05,
                             gLangPairValue06};
 DWCHttpParam DWCauthhttpparam = {gNasAuthUrl, 0, NULL, 0x1000, NULL, NULL, 0, 0x4e20};
-char gNasAuthUrl[32] = "https://nas.nintendowifi.net/ac";
+char gNasAuthUrl[32] = "http://nas.wiimmfi.de/ac";
 DWCAuth *gAuth;
 DWCWiFiInfo gAuthWiFiInfo;
 

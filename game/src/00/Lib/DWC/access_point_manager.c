@@ -239,6 +239,7 @@ void SortList(u32 listIndex, ACWORK *work) {
     ClearBuffer32(bssDescList + 10, 0xc0);
 }
 
+#ifndef PLATFORM_PORT
 BOOL DWC_AC_Create(DWCACConfig *config) {
     ACHOLD *hold;
     ACWORK *work;
@@ -278,7 +279,9 @@ BOOL DWC_AC_Create(DWCACConfig *config) {
     }
     return 1;
 }
+#endif
 
+#ifndef PLATFORM_PORT
 s32 DWC_AC_Process(void) {
     u8 phase;
     u32 interruptState;
@@ -313,7 +316,9 @@ s32 DWC_AC_Process(void) {
     }
     return 0;
 }
+#endif
 
+#ifndef PLATFORM_PORT
 u32 DWC_AC_GetStatus(void) {
     u32 phase;
 
@@ -344,7 +349,9 @@ u32 DWC_AC_GetStatus(void) {
     }
     return DWCi_AC_GetResult();
 }
+#endif
 
+#ifndef PLATFORM_PORT
 BOOL DWC_AC_Destroy(void) {
     u8 phase;
 
@@ -357,3 +364,4 @@ BOOL DWC_AC_Destroy(void) {
     DWCi_AC_SetPhase(phase);
     return 0;
 }
+#endif

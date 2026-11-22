@@ -59,6 +59,10 @@ typedef struct Gpu2dCompose {
 bool gpu2d_render_layers(const FrameSnapshot *f, uint32_t *const top[3], uint32_t *const bottom[3], int top_margin,
                          Gpu2dCompose compose[2]);
 bool gpu2d_engine_a_on_top(const FrameSnapshot *f);
+enum { GPU2D_HUD_SHOWN = 1, GPU2D_HUD_PICTURE = 2, GPU2D_HUD_MAP = 4, GPU2D_HUD_PAUSE = 8, GPU2D_HUD_LIST = 16 };
+enum { GPU2D_HUD_ROW_MAP = 0, GPU2D_HUD_ROW_LIST = 192, GPU2D_HUD_ROW_TIME = 384, GPU2D_HUD_TIME_ROWS = 32,
+       GPU2D_HUD_ROW_PAUSE = 416, GPU2D_HUD_ROWS = 608 };
+int gpu2d_render_hud(const FrameSnapshot *f, uint32_t *out);
 void gpu2d_skip_engines(bool skip_a, bool skip_b);
 void gpu2d_line_versions(const uint32_t **engine_a, const uint32_t **engine_b);
 

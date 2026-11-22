@@ -8,6 +8,7 @@
 
 #pragma opt_unpromotetypes on
 
+#ifndef PLATFORM_PORT
 void CPS_SetSsl(u8 useHttps) {
     CPSSoc *connection;
     OSi_ReferSymbol(BuildInfo.mSsl);
@@ -16,3 +17,4 @@ void CPS_SetSsl(u8 useHttps) {
         connection->mUseHttps = useHttps;
     }
 }
+#endif

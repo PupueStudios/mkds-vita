@@ -61,6 +61,25 @@ void hapi_net_send(const HostNetAddr *to, const void *data, uint32_t size);
 // The next datagram, or -1 when none is waiting.
 int32_t hapi_net_recv(void *data, uint32_t capacity, HostNetAddr *from);
 
+enum { HAPI_SOCK_AGAIN = -6, HAPI_SOCK_CONNECTING = -26, HAPI_SOCK_RESET = -15, HAPI_SOCK_FAILED = -1 };
+enum { HAPI_POLL_READ = 1, HAPI_POLL_WRITE = 2, HAPI_POLL_ERROR = 4, HAPI_POLL_HUP = 8 };
+int hapi_inet_state(void);
+uint32_t hapi_inet_ip(void);
+uint32_t hapi_resolve(const char *name);
+int32_t hapi_sock_open(bool tcp);
+int32_t hapi_sock_bind(int32_t s, uint16_t port);
+uint16_t hapi_sock_port(int32_t s);
+int32_t hapi_sock_connect(int32_t s, uint32_t ip, uint16_t port);
+int32_t hapi_sock_listen(int32_t s);
+int32_t hapi_sock_accept(int32_t s, uint32_t *ip, uint16_t *port);
+int32_t hapi_sock_send(int32_t s, const void *data, uint32_t size, uint32_t ip, uint16_t port);
+int32_t hapi_sock_recv(int32_t s, void *data, uint32_t capacity, uint32_t *ip, uint16_t *port);
+int hapi_sock_poll(int32_t s);
+void hapi_sock_shutdown(int32_t s);
+void hapi_sock_close(int32_t s);
+uint32_t hapi_file_read(const char *name, void *data, uint32_t size);
+bool hapi_file_write(const char *name, const void *data, uint32_t size);
+
 #ifdef __cplusplus
 }
 #endif

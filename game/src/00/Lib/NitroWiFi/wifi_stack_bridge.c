@@ -44,6 +44,7 @@ void WCMi_CpsifSendNullPacket(void) {
     }
 }
 
+#ifndef PLATFORM_PORT
 u8 *WCM_GetApMacAddress(void) {
     u8 *mac = NULL;
     WCMWork *work;
@@ -57,7 +58,9 @@ u8 *WCM_GetApMacAddress(void) {
     OS_RestoreInterrupts(enabled);
     return mac;
 }
+#endif
 
+#ifndef PLATFORM_PORT
 u8 *WCM_GetApEssid(u16 *length) {
     u8 *ssidBytes = NULL;
     u16 ssidLength = 0;
@@ -76,6 +79,7 @@ u8 *WCM_GetApEssid(u16 *length) {
     }
     return ssidBytes;
 }
+#endif
 
 u32 WCM_SetRecvDCFCallback(WCMRecvInd callback) {
     u32 enabled = (u32) callback;

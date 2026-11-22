@@ -54,19 +54,24 @@ char sInetNtoABuffer[16];
 SOCLConfig soclConfig;
 s8 entName[0x104];
 
+#ifndef PLATFORM_PORT
 s32 SOC_Socket(s32 protocolFamily, s32 socketType, s32 protocol) {
     if (socketType == 1) {
         return SOCL_CreateSocket(&SOCLSocketParamTCP);
     }
     return SOCL_CreateSocket(&SOCLSocketParamUDP);
 }
+#endif
 
+#ifndef PLATFORM_PORT
 s32 SOC_Bind(s32 socket, const void *sockAddr) {
     const SOCSockAddrIn *addr = sockAddr;
     u16 localPort = ((addr->mPort >> 8) & 0xff) | ((addr->mPort << 8) & 0xff00);
     return SOCL_Bind((SOCLSocket *) socket, localPort);
 }
+#endif
 
+#ifndef PLATFORM_PORT
 s32 SOC_Connect(SOCLSocket *socket, SOCSockAddrIn *sockAddr) {
     u32 networkAddress = sockAddr->mAddr;
     u16 port = ((sockAddr->mPort >> 8) & 0xff) | ((sockAddr->mPort << 8) & 0xff00);
@@ -75,13 +80,17 @@ s32 SOC_Connect(SOCLSocket *socket, SOCSockAddrIn *sockAddr) {
         (((networkAddress << 8) & 0xff0000) | (((networkAddress >> 24) & 0xff) | ((networkAddress >> 8) & 0xff00)));
     return SOCL_Connect(socket, port, hostAddress);
 }
+#endif
 
+#ifndef PLATFORM_PORT
 s32 SOC_Recv(s32 sockObj, void *buffer, s32 length, s32 flags) {
     u16 *noPort = NULL;
     u32 result = SOCL_ReadFrom(sockObj, buffer, length, noPort, 0x0u, flags);
     return result;
 }
+#endif
 
+#ifndef PLATFORM_PORT
 s32 SOC_RecvFrom(s32 sockObj, void *buffer, s32 length, s32 flags, void *sockFrom) {
     SOCSockAddrIn *addr;
     u16 netPort;
@@ -95,13 +104,17 @@ s32 SOC_RecvFrom(s32 sockObj, void *buffer, s32 length, s32 flags, void *sockFro
     }
     return result;
 }
+#endif
 
+#ifndef PLATFORM_PORT
 s32 SOC_Send(s32 sockObj, void *buffer, s32 length, s32 flags) {
     u32 zeroPort = ((0x0u) + (0x0u));
     u32 result = SOCL_WriteTo(sockObj, buffer, length, zeroPort, 0x0u, flags);
     return result;
 }
+#endif
 
+#ifndef PLATFORM_PORT
 s32 SOC_SendTo(s32 sockObj, void *buffer, s32 length, s32 flags, void *sockTo) {
     SOCSockAddrIn *addr = sockTo;
     u16 netPort;
@@ -116,15 +129,21 @@ s32 SOC_SendTo(s32 sockObj, void *buffer, s32 length, s32 flags, void *sockTo) {
     }
     return SOCL_WriteTo(sockObj, buffer, length, netPort, remoteIp, flags);
 }
+#endif
 
+#ifndef PLATFORM_PORT
 s32 SOC_Shutdown(s32 descriptor) {
     return SOCL_Shutdown(descriptor);
 }
+#endif
 
+#ifndef PLATFORM_PORT
 s32 SOC_Close(s32 descriptor) {
     return SOCL_Close(descriptor);
 }
+#endif
 
+#ifndef PLATFORM_PORT
 SOCHostEnt *SOC_GetHostByName(const char *hostname) {
     u32 hostAddress = SOCL_Resolve(hostname);
     if (hostAddress == 0) {
@@ -142,7 +161,9 @@ SOCHostEnt *SOC_GetHostByName(const char *hostname) {
              (((hostAddress << 8) & 0xff0000) | (((hostAddress >> 24) & 0xff) | ((hostAddress >> 8) & 0xff00)));
     return &hostent;
 }
+#endif
 
+#ifndef PLATFORM_PORT
 s32 SOC_GetSockName(u32 socketHandle, void *sockAddr) {
     SOCLSocket *socket = (SOCLSocket *) socketHandle;
     SOCSockAddrIn *addr = sockAddr;
@@ -169,7 +190,9 @@ s32 SOC_GetSockName(u32 socketHandle, void *sockAddr) {
                   (((ownAddr << 8) & 0xff0000) | (((ownAddr >> 24) & 0xff) | ((ownAddr >> 8) & 0xff00)));
     return 0;
 }
+#endif
 
+#ifndef PLATFORM_PORT
 u32 SOC_GetHostID(void) {
     u32 hostValue = (SOCL_GetHostID());
     u32 shiftedLeft24 = ((hostValue) << 24);
@@ -189,7 +212,9 @@ u32 SOC_GetHostID(void) {
     u32 result = ((swappedWord) + (0x0u));
     return result;
 }
+#endif
 
+#ifndef PLATFORM_PORT
 void SOC_SetResolver(u32 *firstDns, u32 *secondDns) {
     u32 secondWord = (*(u32 *) ((secondDns) + (0)));
     u32 firstWord = (*(u32 *) ((firstDns) + (0)));
@@ -223,11 +248,15 @@ void SOC_SetResolver(u32 *firstDns, u32 *secondDns) {
     u32 secondResult = ((secondSwapped) + (0x0u));
     u32 resolverResult = (SOCL_SetResolver(firstResult, secondResult));
 }
+#endif
 
+#ifndef PLATFORM_PORT
 s32 SOC_Listen(s32 descriptor) {
     return SOCL_Listen(descriptor);
 }
+#endif
 
+#ifndef PLATFORM_PORT
 s32 SOC_Accept(SOCLSocket *socket, SOCSockAddrIn *sockAddr, s32 unusedFlags) {
     u16 remotePort;
     u32 peerAddr;
@@ -239,7 +268,9 @@ s32 SOC_Accept(SOCLSocket *socket, SOCSockAddrIn *sockAddr, s32 unusedFlags) {
     }
     return result;
 }
+#endif
 
+#ifndef PLATFORM_PORT
 s32 SOC_Fcntl(SOCLSocket *socket, s32 command, u32 mode) {
     if (socket == NULL) {
         return -1;
@@ -260,6 +291,7 @@ s32 SOC_Fcntl(SOCLSocket *socket, s32 command, u32 mode) {
     }
     return 0;
 }
+#endif
 
 void *AllocFunc_SOCL(u32 size) {
     u32 totalSize = size + 4;
@@ -277,6 +309,7 @@ void FreeFunc_SOCL(u32 *memory) {
     }
 }
 
+#ifndef PLATFORM_PORT
 s32 SOC_Startup(void *configPointer) {
     SOCConfig *socConfig = configPointer;
     soclConfig.mUseDhcp = socConfig->mFlag == 1 ? 1 : 0;
@@ -304,10 +337,13 @@ s32 SOC_Startup(void *configPointer) {
     soclConfig.mRwin = socConfig->mRwin;
     return SOCL_Startup(&soclConfig);
 }
+#endif
 
+#ifndef PLATFORM_PORT
 s32 SOC_Cleanup(void) {
     return SOCL_Cleanup();
 }
+#endif
 
 char *SOC_InetNtoA(SOCInAddr address) {
     SOC_InetNtoP(2, &address, sInetNtoABuffer, 0x10);
@@ -345,6 +381,7 @@ void SOC_U32to4U8(u32 word, u8 *bytes) {
     bytes[3] = (s8) word;
 }
 
+#ifndef PLATFORM_PORT
 s32 SOC_Poll(void *entries, s32 entryCount, s64 ticksLeft) {
     SocketPollEntry *entry;
     s32 readyCount;
@@ -375,6 +412,7 @@ s32 SOC_Poll(void *entries, s32 entryCount, s64 ticksLeft) {
     }
     return readyCount;
 }
+#endif
 
 void SOCLi_SocketRegister(void *socket) {
     u32 listAddress = (u32) socket;

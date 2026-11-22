@@ -12,6 +12,7 @@
 u8 gWcmRssiIndex;
 u8 gWcmRssi[16];
 
+#ifndef PLATFORM_PORT
 u32 WCM_GetLinkLevel(void) {
     u32 enabled;
     WCMWork *work;
@@ -26,6 +27,7 @@ u32 WCM_GetLinkLevel(void) {
     OS_RestoreInterrupts(enabled);
     return level;
 }
+#endif
 
 u8 WCMi_GetRssiAverage(void) {
     s32 sum = 0;

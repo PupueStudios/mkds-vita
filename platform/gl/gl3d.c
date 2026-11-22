@@ -516,21 +516,24 @@ static GLuint compile_checked(GLenum type, const char *src, bool *ok_out) {
 // recreated for the second one would be gone before the first one is composited, on some drivers).
 typedef struct Target {
     GLuint fbo, color, depth;
-    int w, h;
+    int w, h, samples;
 } Target;
+static int s_samples, s_msaa;
+void gl3d_set_msaa(int samples) { s_msaa = samples == 2 || samples == 4 ? samples : 0; }
 static Target s_targets[3];
 static int s_slot;
 
 void gl3d_use_target(int slot) {
     Target *t = &s_targets[s_slot];
-    t->fbo = s_fbo, t->color = s_color, t->depth = s_depth, t->w = s_w, t->h = s_h;
+    t->fbo = s_fbo, t->color = s_color, t->depth = s_depth, t->w = s_w, t->h = s_h, t->samples = s_samples;
     s_slot = slot >= 0 && slot <= 2 ? slot : 0;
     t = &s_targets[s_slot];
-    s_fbo = t->fbo, s_color = t->color, s_depth = t->depth, s_w = t->w, s_h = t->h;
+    s_fbo = t->fbo, s_color = t->color, s_depth = t->depth, s_w = t->w, s_h = t->h, s_samples = t->samples;
 }
 
 static void ensure_target(int w, int h) {
-    if (w == s_w && h == s_h) return;
+    int samples = s_slot == 0 ? s_msaa : 0;
+    if (w == s_w && h == s_h && samples == s_samples) return;
     if (s_fbo) {
         glDeleteFramebuffers(1, &s_fbo);
         glDeleteTextures(1, &s_color);
@@ -538,6 +541,7 @@ static void ensure_target(int w, int h) {
     }
     s_w = w;
     s_h = h;
+    s_samples = samples;
     glGenTextures(1, &s_color);
     glBindTexture(GL_TEXTURE_2D, s_color);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
@@ -550,7 +554,11 @@ static void ensure_target(int w, int h) {
     glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, w, h);
     glGenFramebuffers(1, &s_fbo);
     glBindFramebuffer(GL_FRAMEBUFFER, s_fbo);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, s_color, 0);
+#ifdef __vita__
+    if (samples) glFramebufferTexture2DMultisample(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, s_color, 0, samples);
+    else
+#endif
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, s_color, 0);
     glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, s_depth);
     if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
         port_log("Graphics: cannot create the 3D target");
@@ -575,7 +583,7 @@ static uint32_t s_mframe[FV_COUNT];
 static bool s_mesh_ok;
 #define MESH_SLOTS 4096
 static GLuint s_mesh_vbo[MESH_SLOTS], s_mesh_ibo[MESH_SLOTS];
-static uint32_t s_mesh_vbo_gen[MESH_SLOTS];
+static uint32_t s_mesh_vbo_gen[MESH_SLOTS], s_mesh_vbo_count[MESH_SLOTS];
 
 static GLuint mesh_link(GLuint vs, GLuint fs, GLint *locs) {
     GLuint prog = glCreateProgram();
@@ -626,11 +634,16 @@ static void mesh_bind(uint32_t id) {
 }
 
 static GLuint mesh_vbo(uint32_t id, uint32_t gen, uint32_t *count) {
-    if (id >= MESH_SLOTS || gen != gx3d_mesh_gen()) return 0;
+    if (id >= MESH_SLOTS) return 0;
+    if (s_mesh_vbo_gen[id] == gen) {
+        *count = s_mesh_vbo_count[id];
+        return s_mesh_vbo[id];
+    }
+    if (gen != gx3d_mesh_gen()) return 0;
     const GxMesh *m = gx3d_mesh(id);
     if (!m || !m->vertex_count || !m->index_count) return 0;
     *count = m->index_count;
-    if (s_mesh_vbo_gen[id] == gen) return s_mesh_vbo[id];
+    s_mesh_vbo_count[id] = m->index_count;
     if (!s_mesh_vbo[id]) glGenBuffers(1, &s_mesh_vbo[id]);
     if (!s_mesh_ibo[id]) glGenBuffers(1, &s_mesh_ibo[id]);
     glBindBuffer(GL_ARRAY_BUFFER, s_mesh_vbo[id]);

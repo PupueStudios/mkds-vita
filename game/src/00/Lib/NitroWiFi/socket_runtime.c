@@ -152,6 +152,7 @@ s32 SOCL_SetResolver(u32 firstDns, u32 secondDns) {
     return 0;
 }
 
+#ifndef PLATFORM_PORT
 s32 SOCL_GetHostID(void) {
     if (CPSMyIp == 0) {
         if ((SOCLiDhcpState & 3) == 1) {
@@ -164,6 +165,7 @@ s32 SOCL_GetHostID(void) {
     }
     return CPSMyIp;
 }
+#endif
 
 s32 SOCL_Cleanup(void) {
     s32 result;
@@ -220,6 +222,7 @@ s32 SOCL_CloseAll(void) {
     return -0x1a;
 }
 
+#ifndef PLATFORM_PORT
 s32 SOCL_CalmDown(void) {
     s32 result;
     SOCL_CloseAll();
@@ -242,6 +245,7 @@ s32 SOCL_CalmDown(void) {
     }
     return result;
 }
+#endif
 
 BOOL SOCL_IsClosed(SOCLSocket *socket) {
     int checkResult;

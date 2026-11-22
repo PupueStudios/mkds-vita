@@ -1584,6 +1584,7 @@ u32 get_seqno(void) {
     return CPSiRand32ctx[0] >> 32;
 }
 
+#ifndef PLATFORM_PORT
 void CPS_SocRegister(void *socket) {
     u32 socketAddress = (u32) socket;
     u32 slotAddress;
@@ -1592,10 +1593,13 @@ void CPS_SocRegister(void *socket) {
     slotAddress = (slotAddress) + 164u;
     *(u32 *) ((slotAddress) + 0u) = socketAddress;
 }
+#endif
 
+#ifndef PLATFORM_PORT
 void CPS_SocUnRegister(void) {
     OSi_ThreadInfo.mCurrentThread->mSpecific[0] = NULL;
 }
+#endif
 
 void CPS_SocDatagramMode(void) {
     CPSSoc *socket;
@@ -1606,6 +1610,7 @@ void CPS_SocDatagramMode(void) {
     }
 }
 
+#ifndef PLATFORM_PORT
 void CPS_SocBind(int ownPort, u16 remotePort, int remoteAddress) {
     u16 ephemeralPort;
     CPSSoc *socket;
@@ -1626,7 +1631,9 @@ void CPS_SocBind(int ownPort, u16 remotePort, int remoteAddress) {
         socket->mLocalPort = ownPort;
     }
 }
+#endif
 
+#ifndef PLATFORM_PORT
 void CPS_SocUse(void) {
     CPSSoc *socket;
     socket = OSi_ThreadInfo.mCurrentThread->mSpecific[0];
@@ -1638,7 +1645,9 @@ void CPS_SocUse(void) {
         socket->mReceiveCallback = NULL;
     }
 }
+#endif
 
+#ifndef PLATFORM_PORT
 void CPS_SocRelease(void) {
     CPSSoc *socket;
     socket = OSi_ThreadInfo.mCurrentThread->mSpecific[0];
@@ -1646,6 +1655,7 @@ void CPS_SocRelease(void) {
         socket->mThread = NULL;
     }
 }
+#endif
 
 void CPS_SocDup(OSThread *thread) {
     thread->mSpecific[0] = OSi_ThreadInfo.mCurrentThread->mSpecific[0];
@@ -1708,6 +1718,7 @@ u32 CPSi_TcpConnectRaw(CPSSoc *socket) {
     return 1;
 }
 
+#ifndef PLATFORM_PORT
 u32 CPS_TcpConnect(void) {
     CPSSoc *socket;
 
@@ -1720,6 +1731,7 @@ u32 CPS_TcpConnect(void) {
     }
     return 1;
 }
+#endif
 
 u32 CPS_SocWho(u16 *remotePort, u32 *localAddress) {
     CPSSoc *socket;
@@ -1749,6 +1761,7 @@ void CPSi_TcpShutdownRaw(CPSSoc *socket) {
     }
 }
 
+#ifndef PLATFORM_PORT
 void CPS_TcpShutdown(void) {
     CPSSoc *socket;
 
@@ -1761,7 +1774,9 @@ void CPS_TcpShutdown(void) {
         }
     }
 }
+#endif
 
+#ifndef PLATFORM_PORT
 void CPS_TcpClose(void) {
     CPSSoc *socket;
     s32 startTick;
@@ -1775,6 +1790,7 @@ void CPS_TcpClose(void) {
         }
     }
 }
+#endif
 
 u8 *udp_read_raw(u32 *length, CPSSoc *socket) {
     u32 received;
@@ -1804,6 +1820,7 @@ u8 *CPSi_TcpReadRaw(u32 *length, CPSSoc *socket) {
     return NULL;
 }
 
+#ifndef PLATFORM_PORT
 u8 *CPS_SocRead(u32 *length) {
     CPSSoc *socket;
 
@@ -1820,6 +1837,7 @@ u8 *CPS_SocRead(u32 *length) {
     *length = 0;
     return NULL;
 }
+#endif
 
 void CPSi_SocConsumeRaw(u32 length, CPSSoc *socket) {
     u32 interruptState;
@@ -1845,6 +1863,7 @@ void CPSi_SocConsumeRaw(u32 length, CPSSoc *socket) {
     }
 }
 
+#ifndef PLATFORM_PORT
 void CPS_SocConsume(u32 length) {
     CPSSoc *socket;
 
@@ -1857,6 +1876,7 @@ void CPS_SocConsume(u32 length) {
         }
     }
 }
+#endif
 
 s32 tcp_write_do(const u8 *buffer, s32 length, CPSSoc *socket, s32 probeFlag) {
     u32 window;
@@ -2007,6 +2027,7 @@ s32 CPSi_SocWrite2(const u8 *buffer, s32 length, const u8 *secondBuffer, s32 sec
     return 0;
 }
 
+#ifndef PLATFORM_PORT
 s32 CPS_SocWrite(const u8 *buffer, s32 length) {
     CPSSoc *socket;
     s32 bytesWritten;
@@ -2029,7 +2050,9 @@ s32 CPS_SocWrite(const u8 *buffer, s32 length) {
     }
     return 0;
 }
+#endif
 
+#ifndef PLATFORM_PORT
 s32 CPS_SocGetLength(void) {
     CPSSoc *socket;
     s32 count;
@@ -2049,7 +2072,9 @@ s32 CPS_SocGetLength(void) {
     }
     return 0;
 }
+#endif
 
+#ifndef PLATFORM_PORT
 void CPS_SocFlush(void) {
     CPSSoc *socket;
     socket = OSi_ThreadInfo.mCurrentThread->mSpecific[0];
@@ -2058,6 +2083,7 @@ void CPS_SocFlush(void) {
         socket->mOutBufferLength = 0;
     }
 }
+#endif
 
 void set_fixed_ip(void) {
     s32 startTick;
@@ -2644,6 +2670,7 @@ u32 resolve_sub(const char *name, int dnsServer, u32 queryId) {
     return address;
 }
 
+#ifndef PLATFORM_PORT
 u32 CPS_Resolve(const char *name) {
     u32 address;
     u8 askServer[2];
@@ -2679,3 +2706,4 @@ done:
     }
     return address;
 }
+#endif

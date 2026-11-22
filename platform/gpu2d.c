@@ -140,6 +140,8 @@ typedef struct Engine {
     // A still picture as the extended layer: beyond the DS screen it shows its edge colours, blurred vertically
     // (per line, BGR555 | 0x8000 when opaque), fading a little towards the outside, instead of repeating.
     const uint16_t *side[2];
+    bool hud;
+    uint8_t obj_mode, obj_lo, obj_hi;
 } Engine;
 
 static inline uint16_t fade555(uint16_t c, int d, int margin) {
@@ -441,6 +443,8 @@ static void draw_objs(const Engine *e, int y, Line *line) {
     uint32_t bound = map1d ? 32u << ((e->dispcnt >> 20) & 3) : 32;
     bool ext = e->dispcnt & 0x80000000u;
     for (int i = 127; i >= 0; i--) { // backwards: lower OAM indices win
+        if (e->obj_mode == 1 ? i < e->obj_lo || i >= e->obj_hi : e->obj_mode == 2 && i >= e->obj_lo && i < e->obj_hi)
+            continue;
         const uint16_t *a = oam + i * 4;
         uint16_t a0 = a[0], a1 = a[1], a2 = a[2];
         bool affine = a0 & 0x100;
@@ -919,8 +923,12 @@ static void render_engine_line(const Engine *e, int y, const uint32_t *layer3d, 
         bool effects = m & 0x20;
         bool first = (bldcnt >> top0) & 1;
         bool second = (bldcnt >> (8 + top1)) & 1;
+        if (e->hud && top0 == LAYER_BD) {
+            out[x] = 0;
+            continue;
+        }
         if (!effects && top0 != LAYER_OBJ && !(top0 == 0 && bg0_3d)) {
-            out[x] = c;
+            out[x] = e->hud ? c | 0xff000000u : c;
             continue;
         }
         uint32_t alpha3d = 31;
@@ -942,7 +950,7 @@ static void render_engine_line(const Engine *e, int y, const uint32_t *layer3d, 
                 c = darken(c, evy);
             }
         }
-        out[x] = c;
+        out[x] = e->hud ? c | 0xff000000u : c;
     }
 #undef RGB
 }
@@ -989,6 +997,9 @@ static void engine_prepare(Engine *ep, const FrameSnapshot *f, const VramMap *ma
     e.ext_bg = margin > 0 ? bottom_layer(&e) : -1;
     if (e.ext_bg == 4) e.ext_bg = -1;
     e.side[0] = e.side[1] = NULL;
+    e.hud = false;
+    e.obj_mode = 0;
+    e.obj_lo = e.obj_hi = 0;
     if (e.ext_bg >= 0) {
         // A scrolling layer or one with more map beyond the screen goes on as its map does (patterns, skies); a
         // still picture made for the screen (logos, title, menu backgrounds) is mirrored at its edges instead of
@@ -1535,6 +1546,104 @@ bool gpu2d_render_layers(const FrameSnapshot *f, uint32_t *const top[3], uint32_
     Job jb = {f, &map, false, GPU2D_LAYERS, lb[0], lb[1], a_on_top ? 0 : top_margin, lb[2]};
     render_both(&ja, &jb, false);
     return true;
+}
+
+typedef struct HudRows {
+    const Engine *e;
+    uint32_t *out;
+    int rows;
+    const uint8_t *used;
+} HudRows;
+
+static void hud_rows(void *arg, int y0, int y1) {
+    const HudRows *h = arg;
+    if (y1 > h->rows) y1 = h->rows;
+    for (int y = y0; y < y1; y++) {
+        if (h->used && !h->used[y]) memset(h->out + y * 256, 0, 256 * 4);
+        else render_engine_line(h->e, y, NULL, h->out + y * 256, NULL);
+    }
+}
+
+static void sprite_lines(const Engine *e, int lo, int hi, uint8_t used[192]) {
+    const uint16_t *oam = (const uint16_t *) (e->f->oam + 0x400);
+    memset(used, 0, 192);
+    for (int i = lo; i < hi; i++) {
+        const uint16_t *a = oam + i * 4;
+        uint16_t a0 = a[0], a1 = a[1];
+        bool affine = a0 & 0x100;
+        if (!affine && (a0 & 0x200)) continue;
+        uint32_t shape = (a0 >> 14) & 3, size = (a1 >> 14) & 3;
+        if (shape == 3) continue;
+        int bh = s_obj_h[shape][size];
+        if (affine && (a0 & 0x200)) bh *= 2;
+        int oy = a0 & 0xff;
+        for (int dy = 0; dy < bh; dy++) {
+            int y = (oy + dy) & 0xff;
+            if (y < 192) used[y] = 1;
+        }
+    }
+}
+
+int gpu2d_render_hud(const FrameSnapshot *f, uint32_t *out) {
+    const uint8_t *io = f->io + 0x1000;
+    uint32_t dispcnt = (uint32_t) io[0] | io[1] << 8 | io[2] << 16 | (uint32_t) io[3] << 24;
+    uint32_t mode = dispcnt & 7, layers = (dispcnt >> 8) & 0x1f;
+    if (((dispcnt >> 16) & 3) != 1 || !layers) return 0;
+    bool map = mode == 5;
+    bool icons = mode == 0 && (layers & ~1u) == 0x1c;
+    bool pause = (map || icons) && (layers & 1);
+    rgb_table_init();
+    VramMap vmap;
+    vram_map_build(&vmap, f->vramcnt);
+    Engine e;
+    engine_prepare(&e, f, &vmap, false, 0);
+    e.hud = map || icons;
+    if (icons) e.dispcnt &= ~0x800u;
+    if (pause) e.dispcnt &= ~0x100u;
+    uint8_t lo = f->hud_oam[0], hi = f->hud_oam[1];
+    bool list = e.hud && lo <= hi && hi <= 128 && hi > 0;
+    Engine sprites = e;
+    sprites.dispcnt = (e.dispcnt & ~0x0f00u) | 0x1000u;
+    sprites.obj_mode = 1;
+    if (list) {
+        e.obj_mode = 1;
+        e.obj_lo = hi;
+        e.obj_hi = 128;
+    }
+    static uint32_t s_tick, s_last_kind;
+    uint32_t kind = 1u | (map ? 2u : 0) | (icons ? 4u : 0) | (pause ? 8u : 0) | (list ? 16u : 0);
+    bool all = kind != s_last_kind;
+    s_last_kind = kind;
+    s_tick++;
+    bool do_map = all || !list || (s_tick & 1), do_list = list && (all || !(s_tick & 1));
+    if (do_map) {
+        HudRows rows = {&e, out + GPU2D_HUD_ROW_MAP * 256, 192, NULL};
+        gpu2d_parallel_rows(hud_rows, &rows);
+    }
+    if (do_list) {
+        static uint8_t used_list[192], used_time[192];
+        Engine l = sprites;
+        l.obj_lo = lo;
+        l.obj_hi = hi;
+        sprite_lines(&l, lo, hi, used_list);
+        HudRows lrow = {&l, out + GPU2D_HUD_ROW_LIST * 256, 192, used_list};
+        gpu2d_parallel_rows(hud_rows, &lrow);
+        Engine t = sprites;
+        t.obj_lo = 0;
+        t.obj_hi = lo;
+        sprite_lines(&t, 0, lo, used_time);
+        HudRows trow = {&t, out + GPU2D_HUD_ROW_TIME * 256, GPU2D_HUD_TIME_ROWS, used_time};
+        gpu2d_parallel_rows(hud_rows, &trow);
+    }
+    if (pause && (all || do_map)) {
+        Engine p = e;
+        p.dispcnt = (dispcnt & ~0x1f00u) | 0x100u;
+        p.obj_mode = 0;
+        HudRows prow = {&p, out + GPU2D_HUD_ROW_PAUSE * 256, 192, NULL};
+        gpu2d_parallel_rows(hud_rows, &prow);
+    }
+    if (!e.hud) return GPU2D_HUD_SHOWN | GPU2D_HUD_PICTURE;
+    return GPU2D_HUD_SHOWN | (map ? GPU2D_HUD_MAP : 0) | (pause ? GPU2D_HUD_PAUSE : 0) | (list ? GPU2D_HUD_LIST : 0);
 }
 
 void gpu2d_render_split(const FrameSnapshot *f, uint32_t *engine_a_above, uint32_t *engine_a_below,

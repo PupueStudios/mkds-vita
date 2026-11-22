@@ -28,6 +28,8 @@
 #include "Main/Race/race_goal_m.h"
 #include "Main/Race/race_new_record_ta.h"
 #include "Main/Race/race_hud_sub_screen_bomb_koura_w_cells.h"
+
+extern u8 g_port_hud_oam_pending[2], g_port_hud_oam[2], g_port_hud_fresh;
 #include "Main/Race/race_goal_times.h"
 #include "Main/Race/race_start_battle.h"
 #include "Main/Race/ending_staff_roll.h"
@@ -187,6 +189,9 @@ void UploadRaceHud(void) {
     GX_LoadOAM(&gRaceHud->mMainOam, 0, 0x400);
     DC_FlushRange(&gRaceHud->mSubOam, 0x400);
     GXS_LoadOAM(&gRaceHud->mSubOam, 0, 0x400);
+    g_port_hud_oam[0] = g_port_hud_oam_pending[0];
+    g_port_hud_oam[1] = g_port_hud_oam_pending[1];
+    g_port_hud_fresh = gRaceSetup->mRaceKind == RACE_KIND_NORMAL || gRaceSetup->mRaceKind == RACE_KIND_REPLAY ? 8 : 0;
     if (gRaceHud->mSubScreenEnabled != FALSE) {
         switch (gRaceHud->mSubScreenState) {
             case RACE_HUD_SUB_SCREEN_KART_ICONS:
@@ -1295,7 +1300,9 @@ void DrawRaceHud(void) {
     if (subScreenState != RACE_HUD_SUB_SCREEN_GOAL_KARTS && subScreenState != RACE_HUD_SUB_SCREEN_GOAL_TEAMS) {
         DrawRaceTimeDigits(&gRaceHud->mSubOam);
     }
+    g_port_hud_oam_pending[0] = (u8) gRaceHud->mSubOam.mOamCount;
     DrawRaceRankList(&gRaceHud->mSubOam);
+    g_port_hud_oam_pending[1] = (u8) gRaceHud->mSubOam.mOamCount;
     DC_FlushRange(&gRaceHud->mSubOam, 0x400);
     MI_DmaFill32(3, &gRaceHud->mSubOam.mOams[gRaceHud->mSubOam.mOamCount], 0xc0,
                  (0x80 - gRaceHud->mSubOam.mOamCount) << 3);

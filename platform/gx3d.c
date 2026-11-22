@@ -1157,6 +1157,7 @@ static int dl_decode(const uint32_t *w, uint32_t n, uint32_t *out, uint32_t cap)
 
 #define MESH_VERTICES (1u << 18)
 #define MESH_COUNT 4096
+#define MESH_PENDING (-2)
 static GxMeshVertex *s_mesh_v;
 static uint32_t s_mesh_used;
 #define MESH_INDICES (1u << 20)
@@ -1381,7 +1382,13 @@ static int dl_find_or_add(const volatile uint32_t *src, uint32_t n) {
     for (;;) {
         int e = s_dl_index[slot] - 1;
         if (e < 0) break;
-        if (s_dl[e].hash == h && s_dl[e].n == n && s_dl[e].first == src[0]) return e;
+        if (s_dl[e].hash == h && s_dl[e].n == n && s_dl[e].first == src[0]) {
+            if (s_dl[e].mesh == MESH_PENDING) {
+                int32_t id = mesh_find_or_build(h, n, src[0], &s_dl_arena[s_dl[e].dec], s_dl[e].dec_len);
+                __atomic_store_n(&s_dl[e].mesh, id, __ATOMIC_RELEASE);
+            }
+            return e;
+        }
         slot = (slot + 1) & (DL_SLOTS * 2 - 1);
     }
     if (!s_dl_arena) {
@@ -1421,8 +1428,7 @@ static int dl_find_or_add(const volatile uint32_t *src, uint32_t n) {
     if (len < 0) return -1;
     s_dl_used = dec + (uint32_t) len;
     int e = (int) s_dl_count++;
-    s_dl[e] = (DlEntry) {h, n, src[0], dec, (uint32_t) len, raw, 0, 0, -1};
-    s_dl[e].mesh = mesh_find_or_build(h, n, src[0], &s_dl_arena[dec], (uint32_t) len);
+    s_dl[e] = (DlEntry) {h, n, src[0], dec, (uint32_t) len, raw, 0, 0, MESH_PENDING};
     bool restore = false, other_mtx = false, lit = false, light_setup = false;
     uint32_t verts = 0;
     for (const uint32_t *d = &s_dl_arena[dec], *end = d + len; d < end;) {
@@ -1509,7 +1515,7 @@ static void replay_list(uint32_t index) {
         for (uint32_t i = 0; i < e->n; i++) fifo_write_(s_dl_arena[e->raw + i]);
         return;
     }
-    if (record_draw(e->mesh)) return;
+    if (record_draw(__atomic_load_n(&e->mesh, __ATOMIC_ACQUIRE))) return;
     const uint32_t *d = &s_dl_arena[e->dec], *end = d + e->dec_len;
     while (d < end) {
         uint32_t c = *d & 0xff, np = *d >> 8;

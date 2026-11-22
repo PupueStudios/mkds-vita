@@ -5,6 +5,7 @@
 #include "gl3d.h"
 #include "hostapi.h"
 #include "vita.h"
+#include "menu.h"
 
 #include <psp2/apputil.h>
 #include <psp2/common_dialog.h>
@@ -110,29 +111,50 @@ static void fail(const char *text) {
     sceKernelExitProcess(0);
 }
 
-static bool s_single, s_swapped, s_shown_race;
+static bool s_single, s_swapped, s_shown_race, s_hud_active, s_hud_shown;
 static bool s_redraw = true;
 static int s_layout[8];
+static PresentHudLayout s_hud_layout;
+
+static void set_rect(int *r, int x, int y, int w, int h) { r[0] = x, r[1] = y, r[2] = w, r[3] = h; }
 
 static void apply_screens_layout(void);
 static void apply_screens(void) {
     s_redraw = true;
     apply_screens_layout();
-    present_set_screen_areas(s_layout[2] * s_layout[3], s_layout[6] * s_layout[7]);
+    int bottom_area = s_layout[6] * s_layout[7];
+    present_set_screen_areas(s_layout[2] * s_layout[3], s_hud_active && !s_hud_shown && !bottom_area ? 1 : bottom_area);
+    present_set_hud(s_hud_active ? &s_hud_layout : NULL, s_hud_shown);
 }
 static void apply_screens_layout(void) {
     const int w = VITA_SCREEN_W, h = VITA_SCREEN_H;
     const int w43 = h * 4 / 3;
     int *top = s_layout, *bottom = s_layout + 4;
     memset(s_layout, 0, sizeof(s_layout));
+    s_hud_shown = false;
+    s_shown_race = present_is_race();
+    s_hud_active = !s_single && !s_swapped && s_shown_race && !vita_menu_classic();
     if (s_single) {
-        s_shown_race = present_is_race();
         if (s_shown_race != s_swapped) {
             top[2] = w, top[3] = h;
         } else {
             bottom[0] = (w - w43) / 2, bottom[2] = w43, bottom[3] = h;
         }
         return;
+    }
+    if (s_hud_active) {
+        const int m = 10;
+        set_rect(s_hud_layout.list, 15, 145, 333, 250);
+        set_rect(s_hud_layout.time, (w - 272) / 2, 6, 272, 48);
+        set_rect(s_hud_layout.side, w - 154 - m, h - 217 - m, 154, 217);
+        set_rect(s_hud_layout.map, w - 290 - m, h - 217 - m, 290, 217);
+        set_rect(s_hud_layout.whole, w - 290 - m, h - 217 - m, 290, 217);
+        set_rect(s_hud_layout.pause, (w - 435) / 2, (h - 326) / 2, 435, 326);
+        if (present_hud_usable()) {
+            top[2] = w, top[3] = h;
+            s_hud_shown = true;
+            return;
+        }
     }
     int ih = h * 32 / 100, side = (w - w43) / 2 * 3 / 4;
     if (side > ih) ih = side;
@@ -168,6 +190,19 @@ static void read_input(void) {
 
     PortInput in;
     memset(&in, 0, sizeof(in));
+    SceTouchData touch;
+    memset(&touch, 0, sizeof(touch));
+    sceTouchPeek(SCE_TOUCH_PORT_FRONT, &touch, 1);
+    bool was_open = vita_menu_open();
+    if (vita_menu_input(touch.reportNum, touch.report[0].x * VITA_SCREEN_W / 1920,
+                        touch.report[0].y * VITA_SCREEN_H / 1088, pressed, b)) {
+        if (vita_menu_open() || was_open) s_redraw = true;
+        if (vita_menu_take_layout_change()) apply_screens();
+        s_select_combo = false;
+        s_select_pulse = 0;
+        guest_input_set(&in);
+        return;
+    }
     if (b & SCE_CTRL_SELECT) {
         if (pressed & SCE_CTRL_RTRIGGER) {
             s_swapped = !s_swapped;
@@ -198,11 +233,14 @@ static void read_input(void) {
     if (pad.ly < 128 - 48) in.buttons |= PAD_UP;
     if (pad.ly > 128 + 48) in.buttons |= PAD_DOWN;
 
-    SceTouchData touch;
-    memset(&touch, 0, sizeof(touch));
-    sceTouchPeek(SCE_TOUCH_PORT_FRONT, &touch, 1);
     const int *r = s_layout + 4;
-    if (touch.reportNum > 0 && r[2] > 0 && r[3] > 0) {
+    int hx, hy;
+    if (touch.reportNum > 0 && s_hud_shown &&
+        present_hud_touch(touch.report[0].x * VITA_SCREEN_W / 1920, touch.report[0].y * VITA_SCREEN_H / 1088, &hx, &hy)) {
+        in.touching = true;
+        in.touch_x = (uint16_t) hx;
+        in.touch_y = (uint16_t) hy;
+    } else if (touch.reportNum > 0 && r[2] > 0 && r[3] > 0) {
         int x = touch.report[0].x * VITA_SCREEN_W / 1920, y = touch.report[0].y * VITA_SCREEN_H / 1088;
         if (x >= r[0] && x < r[0] + r[2] && y >= r[1] && y < r[1] + r[3]) {
             in.touching = true;
@@ -355,6 +393,8 @@ int main(void) {
     }
     guest_start_game();
     vita_audio_start();
+    vita_menu_load();
+    hapi_inet_state();
     apply_screens();
 
     sceKernelChangeThreadCpuAffinityMask(0, SCE_KERNEL_CPU_MASK_USER_1);
@@ -381,8 +421,10 @@ int main(void) {
         s_loop_stage = "commit";
         bool fresh = present_async_commit();
         if (fresh) {
-            if (s_single && present_is_race() != s_shown_race) {
+            if (present_is_race() != s_shown_race) {
                 s_swapped = false;
+                apply_screens();
+            } else if (s_hud_active && present_hud_usable() != s_hud_shown) {
                 apply_screens();
             }
         }
@@ -390,6 +432,7 @@ int main(void) {
             s_redraw = false;
             s_loop_stage = "draw";
             present_draw(s_layout, VITA_SCREEN_W, VITA_SCREEN_H, 1.0f);
+            vita_menu_draw();
             if (fresh) {
                 uint64_t shot = present_shown_time_ns(), nowns = port_now_ns();
                 if (shot && nowns > shot && nowns - shot < 100000000ull) {

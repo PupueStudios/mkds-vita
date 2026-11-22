@@ -563,6 +563,7 @@ s32 WCM_TerminateAsync(void) {
     return 3;
 }
 
+#ifndef PLATFORM_PORT
 u32 WCM_GetPhase(void) {
     u32 enabled;
     u32 connPhase;
@@ -577,6 +578,7 @@ u32 WCM_GetPhase(void) {
     OS_RestoreInterrupts(enabled);
     return connPhase;
 }
+#endif
 
 u32 WCM_UpdateOption(u32 option) {
     u32 enabled;

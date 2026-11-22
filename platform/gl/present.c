@@ -34,6 +34,10 @@ static const char *VS = "void main(float2 pos, float2 uv, float2 out v_uv : TEXC
 static const char *FS_PLAIN = "float4 main(float2 v_uv : TEXCOORD0, uniform sampler2D tex : TEXUNIT0) : COLOR {\n"
                               "  return float4(tex2D(tex, v_uv).rgb, 1.0);\n"
                               "}\n";
+static const char *FS_HUD = "float4 main(float2 v_uv : TEXCOORD0, uniform sampler2D tex : TEXUNIT0, uniform float opacity) : COLOR {\n"
+                            "  float4 t = tex2D(tex, v_uv);\n"
+                            "  return float4(t.rgb, t.a * opacity);\n"
+                            "}\n";
 static const char *FS_COMPOSE =
     "float4 main(float2 v_uv : TEXCOORD0, uniform sampler2D above : TEXUNIT0, uniform sampler2D below : TEXUNIT1,\n"
     "            uniform sampler2D layer3d : TEXUNIT2, uniform float bright_mode, uniform float bright,\n"
@@ -66,6 +70,13 @@ static const char *FS_PLAIN = "#version 300 es\n"
                               "in vec2 v_uv;\n"
                               "out vec4 color;\n"
                               "void main() { color = vec4(texture(tex, v_uv).rgb, 1.0); }\n";
+static const char *FS_HUD = "#version 300 es\n"
+                            "precision mediump float;\n"
+                            "uniform sampler2D tex;\n"
+                            "uniform float opacity;\n"
+                            "in vec2 v_uv;\n"
+                            "out vec4 color;\n"
+                            "void main() { vec4 t = texture(tex, v_uv); color = vec4(t.rgb, t.a * opacity); }\n";
 // Engine A with the 3D layer: below / 3D / above, then the master brightness.
 static const char *FS_COMPOSE =
     "#version 300 es\n"
@@ -180,6 +191,8 @@ typedef struct Presented {
     bool software; // both screens complete in s_tex_plain[0..1]
     bool a_on_top;
     bool race;       // a race frame
+    GLuint hud_tex;
+    int hud_flags;
     int width_top, width_bottom; // of the 2D pictures of the top and bottom screens (top: widescreen)
     uint16_t bright; // engine A MASTER_BRIGHT
     float backdrop[3];
@@ -189,6 +202,9 @@ typedef struct Presented {
 
 static GLuint s_prog_plain, s_prog_compose, s_tex_plain[2], s_tex_above, s_tex_below, s_alt_b;
 static GLuint s_prog_layers;
+#define HUD_ROWS GPU2D_HUD_ROWS
+static GLuint s_prog_hud, s_tex_hud;
+static GLint s_u_hud_opacity;
 static bool s_layers_ok;
 static GLint s_ul_width, s_ul_k3, s_ul_bg0_3d, s_ul_prio, s_ul_enabled, s_ul_first03, s_ul_first45, s_ul_second03,
     s_ul_second45, s_ul_effect, s_ul_backdrop, s_ul_bright;
@@ -238,6 +254,8 @@ uint64_t present_shown_time_ns(void) { return s_shown.snap ? s_shown.snap->time_
 
 void present_init(void) {
     s_prog_plain = program(FS_PLAIN);
+    s_prog_hud = program(FS_HUD);
+    s_u_hud_opacity = glGetUniformLocation(s_prog_hud, "opacity");
     s_prog_compose = program(FS_COMPOSE);
     glUseProgram(s_prog_compose);
     glUniform1i(glGetUniformLocation(s_prog_compose, "above"), 0);
@@ -291,6 +309,8 @@ void present_init(void) {
     s_tex_above = make_texture();
     s_tex_below = make_texture();
     s_alt_b = make_texture();
+    s_tex_hud = make_texture();
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 256, HUD_ROWS, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
     for (int i = 0; i < 2; i++) {
         s_held[i].above = make_texture();
         s_held[i].below = make_texture();
@@ -316,6 +336,7 @@ typedef struct Staged {
     bool layer3d;
     int set;
     bool skip_a, skip_b;
+    int hud_flags;
     Gpu2dCompose comp[2];
 } Staged;
 static int s_area_top = 1, s_area_bottom = 1;
@@ -324,8 +345,62 @@ void present_set_screen_areas(int top, int bottom) {
     s_area_bottom = bottom;
 }
 
+static volatile bool s_hud_on;
+static PresentHudLayout s_hud_layout;
+static uint32_t s_hud_master[256 * HUD_ROWS];
+enum { HUD_LIST, HUD_TIME, HUD_SIDE, HUD_MAP, HUD_PIECES };
+static const int s_hud_src[2][HUD_PIECES][5] = {
+    {{0, 0, 144, 192, 0}, {120, 0, 136, 24, 0}, {120, 24, 136, 168, 24}, {0, 24, 256, 168, 24}},
+    {{0, GPU2D_HUD_ROW_LIST, 256, 192, 0},
+     {120, GPU2D_HUD_ROW_TIME, 136, 24, 0},
+     {120, GPU2D_HUD_ROW_MAP, 136, 192, 0},
+     {0, GPU2D_HUD_ROW_MAP, 256, 192, 0}}};
+static const int s_hud_src_whole[5] = {0, GPU2D_HUD_ROW_MAP, 256, 192, 0},
+                 s_hud_src_pause[5] = {0, GPU2D_HUD_ROW_PAUSE, 256, 192, 0};
+
+static const int *hud_src(int flags, int piece) { return s_hud_src[(flags & GPU2D_HUD_LIST) ? 1 : 0][piece]; }
+
+static bool s_hud_draw;
+
+void present_set_hud(const PresentHudLayout *layout, bool draw) {
+    if (layout) s_hud_layout = *layout;
+    else memset(&s_hud_layout, 0, sizeof(s_hud_layout));
+    s_hud_on = layout != NULL;
+    s_hud_draw = layout != NULL && draw;
+}
+
+int present_hud_flags(void) { return s_hud_on && s_shown.race ? s_shown.hud_flags : 0; }
+
+bool present_hud_usable(void) {
+    int flags = present_hud_flags();
+    return (flags & GPU2D_HUD_SHOWN) && !(flags & GPU2D_HUD_PICTURE);
+}
+
+static bool hud_hit(const int r[4], const int src[5], int x, int y, int *dx, int *dy) {
+    if (r[2] <= 0 || r[3] <= 0 || x < r[0] || x >= r[0] + r[2] || y < r[1] || y >= r[1] + r[3]) return false;
+    *dx = src[0] + (x - r[0]) * src[2] / r[2];
+    *dy = src[4] + (y - r[1]) * src[3] / r[3];
+    return true;
+}
+
+bool present_hud_touch(int x, int y, int *dx, int *dy) {
+    int flags = present_hud_flags();
+    if (!s_hud_draw || !(flags & GPU2D_HUD_SHOWN)) return false;
+    if (flags & GPU2D_HUD_PAUSE) return hud_hit(s_hud_layout.pause, s_hud_src_pause, x, y, dx, dy);
+    if (flags & GPU2D_HUD_PICTURE) return hud_hit(s_hud_layout.whole, s_hud_src_whole, x, y, dx, dy);
+    const int *list = hud_src(flags, HUD_LIST);
+    int list_rect[4] = {s_hud_layout.list[0], s_hud_layout.list[1], s_hud_layout.list[2] * 144 / list[2],
+                        s_hud_layout.list[3]};
+    int list_src[5] = {list[0], list[1], 144, list[3], list[4]};
+    return hud_hit(list_rect, list_src, x, y, dx, dy) ||
+           hud_hit(s_hud_layout.time, hud_src(flags, HUD_TIME), x, y, dx, dy) ||
+           (flags & GPU2D_HUD_MAP ? hud_hit(s_hud_layout.map, hud_src(flags, HUD_MAP), x, y, dx, dy)
+                                  : hud_hit(s_hud_layout.side, hud_src(flags, HUD_SIDE), x, y, dx, dy));
+}
+
 typedef struct BufferSet {
     uint32_t a[GPU2D_MAX_W * 192], b[GPU2D_MAX_W * 192], below[GPU2D_MAX_W * 192];
+    uint32_t hud[256 * HUD_ROWS];
 } BufferSet;
 #define SETS 4
 static BufferSet s_sets[SETS];
@@ -333,6 +408,8 @@ static BufferSet s_sets[SETS];
 typedef struct DirectSet {
     GLuint tex[3][2];
     uint32_t *ptr[3][2];
+    GLuint hud_tex;
+    uint32_t *hud_ptr;
     int kind, a_on_top, width_a, width_b, top_w;
     uint32_t ver[2][192];
 } DirectSet;
@@ -470,8 +547,12 @@ static void stage_cpu(Staged *st) {
         }
     }
     st->unchanged = g_gpu2d_unchanged;
+    st->hud_flags = 0;
+    if (s_hud_on && f->scene == 2 && f->hud_ok && !st->alt) st->hud_flags = gpu2d_render_hud(f, s_hud_master);
+    size_t hud_bytes = (size_t) (st->hud_flags & GPU2D_HUD_PAUSE ? GPU2D_HUD_ROWS : GPU2D_HUD_ROW_PAUSE) * 256 * 4;
     if (s_direct) {
         DirectSet *d = &s_dsets[st->set];
+        if (st->hud_flags && d->hud_ptr) memcpy(d->hud_ptr, s_hud_master, hud_bytes);
         int wa = st->width_a != 256, wb = st->width_b != 256, wt = st->top_w != 256;
         const uint32_t *ver[2];
         gpu2d_line_versions(&ver[0], &ver[1]);
@@ -533,6 +614,7 @@ static void stage_cpu(Staged *st) {
             memcpy(d->below, s_master.below, na * 4);
             memcpy(d->b, s_master.b, nb * 4);
         }
+        if (st->hud_flags) memcpy(d->hud, s_hud_master, hud_bytes);
     }
     g_present_stage = "idle";
     if (g_present_test_hook) g_present_test_hook(st->f);
@@ -544,6 +626,18 @@ static void stage_commit(const Staged *st) {
     static int s_last_kind = -1;
     const FrameSnapshot *f = st->f;
     const uint32_t *s_buf_a = s_sets[st->set].a, *s_buf_b = s_sets[st->set].b, *s_buf_below = s_sets[st->set].below;
+    s_shown.hud_flags = st->hud_flags;
+    if (st->hud_flags) {
+        if (s_direct && s_dsets[st->set].hud_ptr) {
+            s_shown.hud_tex = s_dsets[st->set].hud_tex;
+        } else if (!s_direct) {
+            glBindTexture(GL_TEXTURE_2D, s_tex_hud);
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 256, HUD_ROWS, GL_RGBA, GL_UNSIGNED_BYTE, s_sets[st->set].hud);
+            s_shown.hud_tex = s_tex_hud;
+        } else {
+            s_shown.hud_flags = 0;
+        }
+    }
     if (s_direct) {
         const DirectSet *d = &s_dsets[st->set];
         int wa = st->width_a != 256, wb = st->width_b != 256, wt = st->top_w != 256;
@@ -781,6 +875,10 @@ bool present_async_start(const FrameSnapshot *(*take)(void), void (*release)(con
                 memset(s_dsets[k].ptr[p][w], 0, (size_t) widths[w] * 192 * 4);
             }
         }
+        s_dsets[k].hud_tex = make_texture();
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 256, HUD_ROWS, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        s_dsets[k].hud_ptr = vglGetTexDataPointer(GL_TEXTURE_2D);
+        if (s_dsets[k].hud_ptr) memset(s_dsets[k].hud_ptr, 0, 256 * HUD_ROWS * 4);
     }
     s_direct = true;
     s_set_count = DIRECT_SETS;
@@ -932,6 +1030,12 @@ static void fit(const int *r, float aspect, int *out) {
     out[3] = (int) h;
 }
 
+static bool snap_full(int *r, int w, int h) {
+    if (r[0] > 2 || r[1] > 2 || r[2] < w - 4 || r[3] < h - 4 || r[0] + r[2] < w - 2 || r[1] + r[3] < h - 2) return false;
+    r[0] = 0, r[1] = 0, r[2] = w, r[3] = h;
+    return true;
+}
+
 bool present_engine_a_on_top(void) { return s_shown.a_on_top; }
 
 static GLuint s_target; // the framebuffer present_draw draws into (0: the window)
@@ -995,15 +1099,23 @@ static void draw_layers(const int layout[8], int w, int h, float t) {
     GLuint tex3d = any3d && s_shown.snap ? layer3d_texture(wide, t) : 0;
     glBindFramebuffer(GL_FRAMEBUFFER, s_target);
     glViewport(0, 0, w, h);
-    glClearColor(0, 0, 0, 1);
-    glClear(GL_COLOR_BUFFER_BIT);
+    int rects[2][4];
+    bool covered = false;
+    for (int screen = 0; screen < 2; screen++) {
+        if (layout[screen * 4 + 2] <= 0 || layout[screen * 4 + 3] <= 0) continue;
+        fit(&layout[screen * 4], s_shown.comp[screen].width / 192.0f, rects[screen]);
+        covered |= snap_full(rects[screen], w, h);
+    }
+    if (!covered) {
+        glClearColor(0, 0, 0, 1);
+        glClear(GL_COLOR_BUFFER_BIT);
+    }
     glUseProgram(s_prog_layers);
     for (int screen = 0; screen < 2; screen++) {
         if (layout[screen * 4 + 2] <= 0 || layout[screen * 4 + 3] <= 0) continue; // hidden
         const Gpu2dCompose *c = &s_shown.comp[screen];
         float w2 = (float) c->width, w3 = 256.0f * wide;
-        int r[4];
-        fit(&layout[screen * 4], w2 / 192.0f, r);
+        const int *r = rects[screen];
         for (int i = 0; i < 3; i++) {
             glActiveTexture(GL_TEXTURE0 + i);
             glBindTexture(GL_TEXTURE_2D, s_shown.lay_tex[screen][i]);
@@ -1027,7 +1139,82 @@ static void draw_layers(const int layout[8], int w, int h, float t) {
     }
 }
 
+static void draw_screens(const int layout[8], int w, int h, float t);
+
+static void draw_hud_piece(const int r[4], const int src[4], float opacity, int w, int h) {
+    if (r[2] <= 0 || r[3] <= 0) return;
+    float x0 = (float) r[0] / w * 2 - 1, x1 = (float) (r[0] + r[2]) / w * 2 - 1;
+    float y0 = 1 - (float) r[1] / h * 2, y1 = 1 - (float) (r[1] + r[3]) / h * 2;
+    float u0 = src[0] / 256.0f, u1 = (src[0] + src[2]) / 256.0f;
+    float v0 = src[1] / (float) HUD_ROWS, v1 = (src[1] + src[3]) / (float) HUD_ROWS;
+    const float v[] = {x0, y0, u0, v0, x1, y0, u1, v0, x0, y1, u0, v1, x1, y1, u1, v1};
+    glUniform1f(s_u_hud_opacity, opacity);
+    glBindVertexArray(0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, v);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 16, v + 2);
+    glEnableVertexAttribArray(0);
+    glEnableVertexAttribArray(1);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+}
+
+static void draw_hud(int w, int h) {
+    int flags = present_hud_flags();
+    if (!s_hud_draw || !(flags & GPU2D_HUD_SHOWN)) return;
+    const PresentHudLayout *l = &s_hud_layout;
+    glBindFramebuffer(GL_FRAMEBUFFER, s_target);
+    glViewport(0, 0, w, h);
+    glUseProgram(s_prog_hud);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, s_shown.hud_tex);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    if (flags & GPU2D_HUD_PICTURE) {
+        draw_hud_piece(l->whole, s_hud_src_whole, 1.0f, w, h);
+    } else {
+        draw_hud_piece(l->list, hud_src(flags, HUD_LIST), 0.9f, w, h);
+        draw_hud_piece(l->time, hud_src(flags, HUD_TIME), 1.0f, w, h);
+        if (flags & GPU2D_HUD_MAP) draw_hud_piece(l->map, hud_src(flags, HUD_MAP), 0.85f, w, h);
+        else draw_hud_piece(l->side, hud_src(flags, HUD_SIDE), 0.85f, w, h);
+    }
+    if (flags & GPU2D_HUD_PAUSE) draw_hud_piece(l->pause, s_hud_src_pause, 1.0f, w, h);
+    glDisable(GL_BLEND);
+}
+
 void present_draw(const int layout[8], int w, int h, float t) {
+    draw_screens(layout, w, h, t);
+    draw_hud(w, h);
+}
+
+void present_refresh_3d(void) { s_last3d.valid = false; }
+
+void present_draw_overlay(const uint32_t *rgba, bool changed, int tw, int th, const int rect[4], int w, int h) {
+    static GLuint tex;
+    static int tex_w, tex_h;
+    if (!tex) glGenTextures(1, &tex);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    if (tw != tex_w || th != tex_h) {
+        tex_w = tw, tex_h = th;
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, tw, th, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    } else if (changed) {
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, tw, th, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, s_target);
+    glViewport(0, 0, w, h);
+    glUseProgram(s_prog_hud);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    const int src[4] = {0, 0, 256, HUD_ROWS};
+    draw_hud_piece(rect, src, 1.0f, w, h);
+    glDisable(GL_BLEND);
+}
+
+static void draw_screens(const int layout[8], int w, int h, float t) {
     if (s_alt && s_shown.snap) {
         s_last3d.valid = false;
         draw_alt(layout, w, h, t);
@@ -1044,15 +1231,27 @@ void present_draw(const int layout[8], int w, int h, float t) {
     if (!s_shown.software && s_shown.snap) tex3d = layer3d_texture(wide, t);
     glBindFramebuffer(GL_FRAMEBUFFER, s_target);
     glViewport(0, 0, w, h);
-    glClearColor(0, 0, 0, 1);
-    glClear(GL_COLOR_BUFFER_BIT);
+    int rects[2][4];
+    float wqs[2];
+    bool covered = false;
+    for (int screen = 0; screen < 2; screen++) {
+        if (layout[screen * 4 + 2] <= 0 || layout[screen * 4 + 3] <= 0) continue;
+        bool engine_a = (screen == 0) == s_shown.a_on_top;
+        float w2 = (float) (screen == 0 ? s_shown.width_top : s_shown.width_bottom), w3 = 256.0f * wide;
+        wqs[screen] = engine_a && !s_shown.software && w3 > w2 ? w3 : w2;
+        fit(&layout[screen * 4], wqs[screen] / 192.0f, rects[screen]);
+        covered |= snap_full(rects[screen], w, h);
+    }
+    if (!covered) {
+        glClearColor(0, 0, 0, 1);
+        glClear(GL_COLOR_BUFFER_BIT);
+    }
     for (int screen = 0; screen < 2; screen++) { // 0 = top rectangle, 1 = bottom rectangle
         bool engine_a = (screen == 0) == s_shown.a_on_top;
-        int r[4];
         if (layout[screen * 4 + 2] <= 0 || layout[screen * 4 + 3] <= 0) continue; // hidden
         float w2 = (float) (screen == 0 ? s_shown.width_top : s_shown.width_bottom), w3 = 256.0f * wide;
-        float wq = engine_a && !s_shown.software && w3 > w2 ? w3 : w2; // the screen's width in DS pixels
-        fit(&layout[screen * 4], wq / 192.0f, r);
+        float wq = wqs[screen]; // the screen's width in DS pixels
+        const int *r = rects[screen];
         if (s_shown.software) {
             glUseProgram(s_prog_plain);
             glActiveTexture(GL_TEXTURE0);

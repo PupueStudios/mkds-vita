@@ -160,6 +160,8 @@ void PXI_Init(void) {}
 // words with an index in bits 16..23, the data in bits 0..15, a start flag (bit 25, with the SPI command in bits 8..15)
 // and an end flag (bit 24). The firmware is blank apart from the header word that locates the user settings.
 #define FIRMWARE_SIZE 0x40000
+#define FIRMWARE_KEPT 0x3f000
+#define FIRMWARE_FILE "wfc.bin"
 static u8 s_firmware[FIRMWARE_SIZE];
 static bool s_firmware_ready, s_firmware_wren;
 static u32 s_packet[8];
@@ -170,6 +172,7 @@ static void firmware_init(void) {
     memset(s_firmware, 0xff, FIRMWARE_SIZE);
     s_firmware[0x20] = (u8) (0x3fe00 / 8);
     s_firmware[0x21] = (u8) ((0x3fe00 / 8) >> 8);
+    hapi_file_read(FIRMWARE_FILE, s_firmware + FIRMWARE_KEPT, FIRMWARE_SIZE - FIRMWARE_KEPT);
     s_firmware_ready = true;
 }
 
@@ -189,6 +192,7 @@ static void firmware_packet(void) {
         u32 buf = (s_packet[3] & 0xffff) << 16 | (s_packet[4] & 0xffff);
         for (u32 i = 0; i < size; i++) s_firmware[(addr + i) % FIRMWARE_SIZE] = ((u8 *) (uintptr_t) buf)[i];
         s_firmware_wren = false;
+        hapi_file_write(FIRMWARE_FILE, s_firmware + FIRMWARE_KEPT, FIRMWARE_SIZE - FIRMWARE_KEPT);
         break;
     }
     case 0x22: { // status register into a byte of memory

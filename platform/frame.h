@@ -18,6 +18,8 @@ typedef struct FrameSnapshot {
     uint32_t vram_version[FRAME_VRAM_PAGES];
     uint8_t vramcnt[10];         // 0x04000240..0x04000249
     uint8_t scene;               // the game's scene number (2: race)
+    uint8_t hud_oam[2];
+    uint8_t hud_ok;
     uint32_t swap_streak;
     uint64_t time_ns;            // when it was captured (CLOCK_MONOTONIC, host time)
     const Gx3dFrame *list3d;

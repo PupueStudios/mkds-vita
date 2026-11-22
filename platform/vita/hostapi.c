@@ -432,3 +432,169 @@ int32_t hapi_net_recv(void *data, uint32_t capacity, HostNetAddr *from) {
     }
     return -1;
 }
+
+static int net_errno(int r) { return r < 0 ? (r & 0xff) : 0; }
+
+static int32_t sock_result(int r) {
+    if (r >= 0) return r;
+    switch (net_errno(r)) {
+    case SCE_NET_EAGAIN: return HAPI_SOCK_AGAIN;
+    case SCE_NET_EINPROGRESS:
+    case SCE_NET_EALREADY: return HAPI_SOCK_CONNECTING;
+    case SCE_NET_ECONNRESET:
+    case SCE_NET_EPIPE: return HAPI_SOCK_RESET;
+    default: return HAPI_SOCK_FAILED;
+    }
+}
+
+int hapi_inet_state(void) {
+    if (!net_init()) return -1;
+    int state = 0;
+    if (sceNetCtlInetGetState(&state) < 0) return -1;
+    if (state == SCE_NETCTL_STATE_CONNECTED) return 1;
+    if (state == SCE_NETCTL_STATE_DISCONNECTED) return -1;
+    return 0;
+}
+
+uint32_t hapi_inet_ip(void) {
+    SceNetCtlInfo info;
+    uint32_t ip = 0;
+    if (!net_init() || sceNetCtlInetGetInfo(SCE_NETCTL_INFO_GET_IP_ADDRESS, &info) < 0) return 0;
+    sceNetInetPton(SCE_NET_AF_INET, info.ip_address, &ip);
+    return sceNetNtohl(ip);
+}
+
+uint32_t hapi_resolve(const char *name) {
+    if (!net_init()) return 0;
+    uint32_t ip = 0;
+    if (sceNetInetPton(SCE_NET_AF_INET, name, &ip) > 0) return sceNetNtohl(ip);
+    int rid = sceNetResolverCreate("mkds_dns", NULL, 0);
+    if (rid < 0) return 0;
+    SceNetInAddr addr;
+    memset(&addr, 0, sizeof(addr));
+    int r = sceNetResolverStartNtoa(rid, name, &addr, 2000000, 3, 0);
+    sceNetResolverDestroy(rid);
+    return r < 0 ? 0 : sceNetNtohl(addr.s_addr);
+}
+
+int32_t hapi_sock_open(bool tcp) {
+    if (!net_init()) return HAPI_SOCK_FAILED;
+    int fd = sceNetSocket("mkds_wfc", SCE_NET_AF_INET, tcp ? SCE_NET_SOCK_STREAM : SCE_NET_SOCK_DGRAM, 0);
+    if (fd < 0) return HAPI_SOCK_FAILED;
+    int one = 1;
+    sceNetSetsockopt(fd, SCE_NET_SOL_SOCKET, SCE_NET_SO_NBIO, &one, sizeof(one));
+    if (tcp) sceNetSetsockopt(fd, SCE_NET_IPPROTO_TCP, SCE_NET_TCP_NODELAY, &one, sizeof(one));
+    return fd;
+}
+
+static void set_addr(SceNetSockaddrIn *a, uint32_t ip, uint16_t port) {
+    memset(a, 0, sizeof(*a));
+    a->sin_len = sizeof(*a);
+    a->sin_family = SCE_NET_AF_INET;
+    a->sin_addr.s_addr = sceNetHtonl(ip);
+    a->sin_port = sceNetHtons(port);
+}
+
+int32_t hapi_sock_bind(int32_t s, uint16_t port) {
+    SceNetSockaddrIn a;
+    set_addr(&a, 0, port);
+    return sock_result(sceNetBind(s, (const SceNetSockaddr *) &a, sizeof(a)));
+}
+
+uint16_t hapi_sock_port(int32_t s) {
+    SceNetSockaddrIn a;
+    unsigned int len = sizeof(a);
+    if (sceNetGetsockname(s, (SceNetSockaddr *) &a, &len) < 0) return 0;
+    return sceNetNtohs(a.sin_port);
+}
+
+int32_t hapi_sock_connect(int32_t s, uint32_t ip, uint16_t port) {
+    SceNetSockaddrIn a;
+    set_addr(&a, ip, port);
+    int r = sceNetConnect(s, (const SceNetSockaddr *) &a, sizeof(a));
+    if (r < 0 && net_errno(r) == SCE_NET_EISCONN) return 0;
+    return sock_result(r);
+}
+
+int32_t hapi_sock_listen(int32_t s) { return sock_result(sceNetListen(s, 4)); }
+
+int32_t hapi_sock_accept(int32_t s, uint32_t *ip, uint16_t *port) {
+    SceNetSockaddrIn a;
+    unsigned int len = sizeof(a);
+    int fd = sceNetAccept(s, (SceNetSockaddr *) &a, &len);
+    if (fd < 0) return sock_result(fd);
+    int one = 1;
+    sceNetSetsockopt(fd, SCE_NET_SOL_SOCKET, SCE_NET_SO_NBIO, &one, sizeof(one));
+    if (ip) *ip = sceNetNtohl(a.sin_addr.s_addr);
+    if (port) *port = sceNetNtohs(a.sin_port);
+    return fd;
+}
+
+int32_t hapi_sock_send(int32_t s, const void *data, uint32_t size, uint32_t ip, uint16_t port) {
+    if (!ip) return sock_result(sceNetSend(s, data, size, 0));
+    SceNetSockaddrIn a;
+    set_addr(&a, ip, port);
+    return sock_result(sceNetSendto(s, data, size, 0, (const SceNetSockaddr *) &a, sizeof(a)));
+}
+
+int32_t hapi_sock_recv(int32_t s, void *data, uint32_t capacity, uint32_t *ip, uint16_t *port) {
+    SceNetSockaddrIn a;
+    unsigned int len = sizeof(a);
+    memset(&a, 0, sizeof(a));
+    int n = sceNetRecvfrom(s, data, capacity, 0, (SceNetSockaddr *) &a, &len);
+    if (n < 0) return sock_result(n);
+    if (ip) *ip = sceNetNtohl(a.sin_addr.s_addr);
+    if (port) *port = sceNetNtohs(a.sin_port);
+    return n;
+}
+
+int hapi_sock_poll(int32_t s) {
+    int type = 0, err = 0;
+    unsigned int len = sizeof(type);
+    sceNetGetsockopt(s, SCE_NET_SOL_SOCKET, SCE_NET_SO_TYPE, &type, &len);
+    len = sizeof(err);
+    if (sceNetGetsockopt(s, SCE_NET_SOL_SOCKET, SCE_NET_SO_ERROR, &err, &len) >= 0 && err) return HAPI_POLL_ERROR;
+    uint8_t b;
+    int r = sceNetRecvfrom(s, &b, 1, SCE_NET_MSG_PEEK | SCE_NET_MSG_DONTWAIT, NULL, NULL);
+    int bits = 0;
+    if (r > 0) bits |= HAPI_POLL_READ;
+    else if (r == 0 && type == SCE_NET_SOCK_STREAM) bits |= HAPI_POLL_READ | HAPI_POLL_HUP;
+    else if (r < 0 && net_errno(r) == SCE_NET_ENOTCONN) return bits;
+    else if (r < 0 && net_errno(r) != SCE_NET_EAGAIN) bits |= HAPI_POLL_ERROR;
+    if (type == SCE_NET_SOCK_STREAM) {
+        SceNetSockaddrIn a;
+        len = sizeof(a);
+        if (sceNetGetpeername(s, (SceNetSockaddr *) &a, &len) < 0) return bits;
+    }
+    return bits | HAPI_POLL_WRITE;
+}
+
+void hapi_sock_shutdown(int32_t s) { sceNetShutdown(s, SCE_NET_SHUT_RDWR); }
+void hapi_sock_close(int32_t s) { sceNetSocketClose(s); }
+
+static void data_path(char *path, size_t size, const char *name) {
+    snprintf(path, size, "%s/%s", VITA_DATA_DIR, name);
+}
+
+uint32_t hapi_file_read(const char *name, void *data, uint32_t size) {
+    char path[300];
+    data_path(path, sizeof(path), name);
+    SceUID fd = sceIoOpen(path, SCE_O_RDONLY, 0);
+    if (fd < 0) return 0;
+    int n = sceIoRead(fd, data, size);
+    sceIoClose(fd);
+    return n > 0 ? (uint32_t) n : 0;
+}
+
+bool hapi_file_write(const char *name, const void *data, uint32_t size) {
+    char path[300], tmp[310];
+    data_path(path, sizeof(path), name);
+    snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+    SceUID fd = sceIoOpen(tmp, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0777);
+    if (fd < 0) return false;
+    bool ok = sceIoWrite(fd, data, size) == (int) size;
+    sceIoClose(fd);
+    if (!ok) return false;
+    sceIoRemove(path);
+    return sceIoRename(tmp, path) >= 0;
+}

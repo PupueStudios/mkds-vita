@@ -10,6 +10,8 @@ void present_update(const FrameSnapshot *f, int scale);
 // screen as large as fits. t in 0..1: how far between the previous and the last snapshot the 3D is drawn (1: the
 // last one; less for frames in between at display rates above 60 Hz).
 void present_draw(const int layout[8], int w, int h, float t);
+void present_refresh_3d(void);
+void present_draw_overlay(const uint32_t *rgba, bool changed, int tw, int th, const int rect[4], int w, int h);
 // The framebuffer present_draw draws into, when it is not the window's (0): a headset's swapchain image.
 void present_set_target(uint32_t framebuffer);
 // Widescreen: the aspect ratio the race cameras use (guest_set_aspect); race frames are drawn that wide.
@@ -33,4 +35,11 @@ uint64_t present_shown_time_ns(void);
 void present_async_swapped(void);
 void present_async_frame_ready(void);
 void present_set_screen_areas(int top, int bottom);
+typedef struct PresentHudLayout {
+    int list[4], time[4], side[4], map[4], whole[4], pause[4];
+} PresentHudLayout;
+void present_set_hud(const PresentHudLayout *layout, bool draw);
+int present_hud_flags(void);
+bool present_hud_usable(void);
+bool present_hud_touch(int x, int y, int *ds_x, int *ds_y);
 extern void (*g_present_test_hook)(const FrameSnapshot *f);
