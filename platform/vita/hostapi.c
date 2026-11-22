@@ -4,6 +4,7 @@
 #include <psp2/io/fcntl.h>
 #include <psp2/io/stat.h>
 #include <psp2/kernel/clib.h>
+#include <psp2/kernel/openpsid.h>
 #include <psp2/kernel/processmgr.h>
 #include <psp2/kernel/rng.h>
 #include <psp2/kernel/threadmgr.h>
@@ -368,20 +369,25 @@ void hapi_net_mac(uint8_t *mac) {
     static uint8_t s_mac[6];
     static bool s_have;
     if (!s_have) {
-        char path[300];
-        snprintf(path, sizeof(path), "%s.mac", s_save_path[0] ? s_save_path : VITA_DATA_DIR "/mkds");
-        SceUID fd = sceIoOpen(path, SCE_O_RDONLY, 0);
-        if (fd < 0 || sceIoRead(fd, s_mac, 6) != 6) {
-            uint8_t r[3];
+        SceKernelOpenPsId psid;
+        memset(&psid, 0, sizeof(psid));
+        uint32_t h = 2166136261u;
+        if (sceKernelGetOpenPsId(&psid) >= 0) {
+            for (size_t i = 0; i < sizeof(psid.id); i++) h = (h ^ psid.id[i]) * 16777619u;
+        } else {
+            uint8_t r[8];
+            memset(r, 0, sizeof(r));
             sceKernelGetRandomNumber(r, sizeof(r));
-            s_mac[0] = 0x00, s_mac[1] = 0x09, s_mac[2] = 0xbf;
-            s_mac[3] = r[0], s_mac[4] = r[1], s_mac[5] = r[2];
-            if (fd >= 0) sceIoClose(fd);
-            fd = sceIoOpen(path, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0777);
-            if (fd >= 0) sceIoWrite(fd, s_mac, 6);
+            uint64_t t = sceKernelGetProcessTimeWide();
+            for (size_t i = 0; i < sizeof(r); i++) h = (h ^ r[i]) * 16777619u;
+            for (int i = 0; i < 8; i++) h = (h ^ (uint8_t) (t >> (i * 8))) * 16777619u;
         }
-        if (fd >= 0) sceIoClose(fd);
+        h ^= h >> 15;
+        s_mac[0] = 0x00, s_mac[1] = 0x09, s_mac[2] = 0xbf;
+        s_mac[3] = (uint8_t) (h >> 16), s_mac[4] = (uint8_t) (h >> 8), s_mac[5] = (uint8_t) h;
         s_have = true;
+        port_log("Wi-Fi address: %02x:%02x:%02x:%02x:%02x:%02x", s_mac[0], s_mac[1], s_mac[2], s_mac[3], s_mac[4],
+                 s_mac[5]);
     }
     memcpy(mac, s_mac, 6);
 }
@@ -578,10 +584,18 @@ static void data_path(char *path, size_t size, const char *name) {
 
 uint32_t hapi_file_read(const char *name, void *data, uint32_t size) {
     char path[300];
+    uint8_t owner[6], mac[6];
     data_path(path, sizeof(path), name);
     SceUID fd = sceIoOpen(path, SCE_O_RDONLY, 0);
     if (fd < 0) return 0;
-    int n = sceIoRead(fd, data, size);
+    hapi_net_mac(mac);
+    int n = sceIoRead(fd, owner, sizeof(owner));
+    if (n != (int) sizeof(owner) || memcmp(owner, mac, sizeof(mac)) != 0) {
+        sceIoClose(fd);
+        port_log("%s belongs to another Vita: starting a new one", name);
+        return 0;
+    }
+    n = sceIoRead(fd, data, size);
     sceIoClose(fd);
     return n > 0 ? (uint32_t) n : 0;
 }
@@ -590,9 +604,11 @@ bool hapi_file_write(const char *name, const void *data, uint32_t size) {
     char path[300], tmp[310];
     data_path(path, sizeof(path), name);
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+    uint8_t mac[6];
+    hapi_net_mac(mac);
     SceUID fd = sceIoOpen(tmp, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0777);
     if (fd < 0) return false;
-    bool ok = sceIoWrite(fd, data, size) == (int) size;
+    bool ok = sceIoWrite(fd, mac, sizeof(mac)) == (int) sizeof(mac) && sceIoWrite(fd, data, size) == (int) size;
     sceIoClose(fd);
     if (!ok) return false;
     sceIoRemove(path);
