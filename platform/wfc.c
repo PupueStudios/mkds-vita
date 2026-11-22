@@ -25,7 +25,7 @@
 enum { ST_FREE, ST_OPEN, ST_CONNECTING, ST_CONNECTED, ST_FAILED };
 
 typedef struct Socket {
-    int32_t fd;
+    int32_t fd, handle;
     uint8_t state, tcp, block;
 } Socket;
 
@@ -36,10 +36,18 @@ static uint32_t s_my_ip;
 static u32 swap32(u32 v) { return (v >> 24) | ((v >> 8) & 0xff00) | ((v << 8) & 0xff0000) | (v << 24); }
 static u16 swap16(u16 v) { return (u16) ((v >> 8) | (v << 8)); }
 
+static uint32_t s_serial;
+
 static Socket *sock_of(s32 handle) {
-    int i = handle - HANDLE_BASE;
-    if (i < 0 || i >= SOCKETS || s_socks[i].state == ST_FREE) return NULL;
-    return &s_socks[i];
+    if (handle < HANDLE_BASE) return NULL;
+    Socket *s = &s_socks[(handle - HANDLE_BASE) % SOCKETS];
+    if (s->state == ST_FREE || s->handle != handle) return NULL;
+    return s;
+}
+
+static s32 new_handle(int i) {
+    s_socks[i].handle = HANDLE_BASE + (s32) (s_serial++ & 0xffff) * SOCKETS + i;
+    return s_socks[i].handle;
 }
 
 static void wait_a_moment(void) { OS_Sleep(1); }
@@ -163,7 +171,7 @@ s32 SOC_Socket(s32 protocolFamily, s32 socketType, s32 protocol) {
         s_socks[i].state = ST_OPEN;
         s_socks[i].tcp = tcp;
         s_socks[i].block = 1;
-        return HANDLE_BASE + i;
+        return new_handle(i);
     }
     return -1;
 }
@@ -223,7 +231,7 @@ s32 SOC_Connect(SOCLSocket *socket, SOCSockAddrIn *sockAddr) {
 static s32 recv_from(s32 handle, void *buffer, s32 length, s32 flags, u32 *ip, u16 *port) {
     Socket *s = sock_of(handle);
     if (!s) return -0x1c;
-    if (s->tcp && s->state == ST_CONNECTING) finish_connect(s);
+    if (s->tcp && s->state == ST_CONNECTING && finish_connect(s) == -26) return -6;
     if (s->tcp && s->state != ST_CONNECTED) return -0x38;
     bool block = s->block && !(flags & 4);
     for (;;) {
@@ -262,7 +270,7 @@ s32 SOC_RecvFrom(s32 sockObj, void *buffer, s32 length, s32 flags, void *sockFro
 static s32 send_to(s32 handle, const void *buffer, s32 length, s32 flags, u32 ip, u16 port) {
     Socket *s = sock_of(handle);
     if (!s) return -0x1c;
-    if (s->tcp && s->state == ST_CONNECTING) finish_connect(s);
+    if (s->tcp && s->state == ST_CONNECTING && finish_connect(s) == -26) return -6;
     if (s->tcp && s->state != ST_CONNECTED) return -0x38;
     bool block = s->block && !(flags & 4);
     s32 sent = 0;
@@ -357,7 +365,7 @@ s32 SOC_Accept(SOCLSocket *socket, SOCSockAddrIn *sockAddr, s32 unusedFlags) {
                     sockAddr->mPort = swap16(port);
                     sockAddr->mAddr = swap32(ip);
                 }
-                return HANDLE_BASE + i;
+                return new_handle(i);
             }
             hapi_sock_close(fd);
             return -1;
@@ -381,7 +389,7 @@ s32 SOC_Fcntl(SOCLSocket *socket, s32 command, u32 mode) {
 static u32 status_of(s32 handle) {
     Socket *s = sock_of(handle);
     if (!s) return 0x80;
-    if (s->tcp && s->state == ST_CONNECTING) finish_connect(s);
+    if (s->tcp && s->state == ST_CONNECTING && finish_connect(s) == -26) return 0;
     if (s->state == ST_FAILED) return 0x20 | 0x40;
     if (s->tcp && s->state != ST_CONNECTED) return 0x40;
     int bits = hapi_sock_poll(s->fd);
