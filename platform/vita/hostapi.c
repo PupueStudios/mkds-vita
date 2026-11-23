@@ -262,9 +262,14 @@ bool port_rom_open(const char *path) {
         free(p);
         return false;
     }
-    s_rom = p;
-    s_rom_size = (uint32_t) size;
+    port_rom_set(p, (uint32_t) size);
     return true;
+}
+
+void port_rom_set(uint8_t *data, uint32_t size) {
+    free((void *) s_rom);
+    s_rom = data;
+    s_rom_size = size;
 }
 
 const uint8_t *hapi_rom(uint32_t *size) {

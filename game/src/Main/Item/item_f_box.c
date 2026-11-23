@@ -22,6 +22,9 @@
 #include "Main/Save/ghost_record_file.h"
 
 const u16 gItemBombExcludedUntilCourseHitBit = ITEM_OWNER_EXCLUDED_UNTIL_COURSE_HIT;
+#ifdef PLATFORM_PORT
+__attribute__((aligned(4)))
+#endif
 const u8 gItemBombVec3UnitY[12] = {0, 0, 0, 0, 0, 0x10, 0, 0, 0, 0, 0, 0};
 const ItemInfo gItemInfoFBox = {1, 1, 7, 1, 0, 2, NULL};
 const ItemInfo gItemInfoKouraGThree = {1, 0, 0, 3, 0, 4, NULL};

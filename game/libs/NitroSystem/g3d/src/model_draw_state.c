@@ -124,6 +124,28 @@ void NNS_G3dDraw1Mat1Shp(NNSG3dResMdl *resMdl, u32 matId, u32 shpId, BOOL sendMa
 }
 
 // SBC command for a billboard node.
+#ifdef PLATFORM_PORT
+static u32 *SbcBillboardCommands(const u32 *ops, const u32 *args, const void *matrix, const Vec3 *pos,
+                                 const Vec3 *scale) {
+    static u32 commands[18];
+    const u32 *rows = matrix;
+    u32 index;
+    commands[0] = ops[0];
+    commands[1] = args[0];
+    commands[2] = args[1];
+    for (index = 0; index < 9; index++) {
+        commands[3 + index] = rows[index];
+    }
+    commands[12] = pos->x;
+    commands[13] = pos->y;
+    commands[14] = pos->z;
+    commands[15] = scale->x;
+    commands[16] = scale->y;
+    commands[17] = scale->z;
+    return commands;
+}
+#endif
+
 void NNSi_G3dFuncSbc_BB(NNSG3dRS *state, u32 mode) {
     u32 restoreIdx;
     u32 storeIdx;
@@ -181,6 +203,27 @@ void NNSi_G3dFuncSbc_BB(NNSG3dRS *state, u32 mode) {
         scaleVec->x = VEC_Mag((Vec3 *) &clipMtx.mRows[0]);
         scaleVec->y = VEC_Mag((Vec3 *) &clipMtx.mRows[1]);
         scaleVec->z = VEC_Mag((Vec3 *) &clipMtx.mRows[2]);
+#ifdef PLATFORM_PORT
+        {
+            u32 *commands = SbcBillboardCommands(gSbcBillboardPackedOps, gSbcBillboardOpArgs, gSbcBillboardMatrix,
+                                                 pos, scaleVec);
+            if (NNS_G3dGlb.mFlag & G3D_GLB_FLAG_USE_BASE_SRT_CAMERA) {
+                PORT_IO_WRITE(reg_G3X_GXFIFO, 0x171012);
+                MIi_CpuSend32(commands + 1, &reg_G3X_GXFIFO, 8);
+                MIi_CpuSend32(NNS_G3dGlbGetInvWV(), &reg_G3X_GXFIFO, 0x30);
+                PORT_IO_WRITE(reg_G3X_GXFIFO, 0x1b19);
+                MIi_CpuSend32(commands + 3, &reg_G3X_GXFIFO, 0x3c);
+            } else if (NNS_G3dGlb.mFlag & G3D_GLB_FLAG_USE_CAMERA) {
+                PORT_IO_WRITE(reg_G3X_GXFIFO, 0x171012);
+                MIi_CpuSend32(commands + 1, &reg_G3X_GXFIFO, 8);
+                MIi_CpuSend32(NNS_G3dGlbGetInvV(), &reg_G3X_GXFIFO, 0x30);
+                PORT_IO_WRITE(reg_G3X_GXFIFO, 0x1b19);
+                MIi_CpuSend32(commands + 3, &reg_G3X_GXFIFO, 0x3c);
+            } else {
+                MIi_CpuSend32(commands, &reg_G3X_GXFIFO, 0x48);
+            }
+        }
+#else
         if (NNS_G3dGlb.mFlag & G3D_GLB_FLAG_USE_BASE_SRT_CAMERA) {
             PORT_IO_WRITE(reg_G3X_GXFIFO, 0x171012);
             MIi_CpuSend32(gSbcBillboardOpArgs, &reg_G3X_GXFIFO, 8);
@@ -196,6 +239,7 @@ void NNSi_G3dFuncSbc_BB(NNSG3dRS *state, u32 mode) {
         } else {
             MIi_CpuSend32(gSbcBillboardPackedOps, &reg_G3X_GXFIFO, 0x48);
         }
+#endif
     }
     if (timing == 3) {
         state->mFlag &= ~G3D_RS_FLAG_CALLBACK_HANDLED;
@@ -282,6 +326,27 @@ void NNSi_G3dFuncSbc_BBY(NNSG3dRS *state, u32 mode) {
             axes[1].z = -axes[2].y;
             axes[1].y = axes[2].z;
         }
+#ifdef PLATFORM_PORT
+        {
+            u32 *commands = SbcBillboardCommands(gSbcBillboardYPackedOps, gSbcBillboardYOpArgs, gSbcBillboardYAxes,
+                                                 pos, scaleVec);
+            if (NNS_G3dGlb.mFlag & G3D_GLB_FLAG_USE_BASE_SRT_CAMERA) {
+                PORT_IO_WRITE(reg_G3X_GXFIFO, 0x171012);
+                MIi_CpuSend32(commands + 1, &reg_G3X_GXFIFO, 8);
+                MIi_CpuSend32(NNS_G3dGlbGetInvWV(), &reg_G3X_GXFIFO, 0x30);
+                PORT_IO_WRITE(reg_G3X_GXFIFO, 0x1b19);
+                MIi_CpuSend32(commands + 3, &reg_G3X_GXFIFO, 0x3c);
+            } else if (NNS_G3dGlb.mFlag & G3D_GLB_FLAG_USE_CAMERA) {
+                PORT_IO_WRITE(reg_G3X_GXFIFO, 0x171012);
+                MIi_CpuSend32(commands + 1, &reg_G3X_GXFIFO, 8);
+                MIi_CpuSend32(NNS_G3dGlbGetInvV(), &reg_G3X_GXFIFO, 0x30);
+                PORT_IO_WRITE(reg_G3X_GXFIFO, 0x1b19);
+                MIi_CpuSend32(commands + 3, &reg_G3X_GXFIFO, 0x3c);
+            } else {
+                MIi_CpuSend32(commands, &reg_G3X_GXFIFO, 0x48);
+            }
+        }
+#else
         if (NNS_G3dGlb.mFlag & G3D_GLB_FLAG_USE_BASE_SRT_CAMERA) {
             PORT_IO_WRITE(reg_G3X_GXFIFO, 0x171012);
             MIi_CpuSend32(gSbcBillboardYOpArgs, &reg_G3X_GXFIFO, 8);
@@ -297,6 +362,7 @@ void NNSi_G3dFuncSbc_BBY(NNSG3dRS *state, u32 mode) {
         } else {
             MIi_CpuSend32(gSbcBillboardYPackedOps, &reg_G3X_GXFIFO, 0x48);
         }
+#endif
     }
     if (timing == 3) {
         state->mFlag &= ~G3D_RS_FLAG_CALLBACK_HANDLED;

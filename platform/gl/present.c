@@ -34,9 +34,11 @@ static const char *VS = "void main(float2 pos, float2 uv, float2 out v_uv : TEXC
 static const char *FS_PLAIN = "float4 main(float2 v_uv : TEXCOORD0, uniform sampler2D tex : TEXUNIT0) : COLOR {\n"
                               "  return float4(tex2D(tex, v_uv).rgb, 1.0);\n"
                               "}\n";
-static const char *FS_HUD = "float4 main(float2 v_uv : TEXCOORD0, uniform sampler2D tex : TEXUNIT0, uniform float opacity) : COLOR {\n"
+static const char *FS_HUD = "float4 main(float2 v_uv : TEXCOORD0, uniform sampler2D tex : TEXUNIT0, uniform float opacity,\n"
+                            "            uniform float4 circle, uniform float edge) : COLOR {\n"
                             "  float4 t = tex2D(tex, v_uv);\n"
-                            "  return float4(t.rgb, t.a * opacity);\n"
+                            "  float d = length((v_uv - circle.xy) / circle.zw);\n"
+                            "  return float4(t.rgb, t.a * opacity * saturate((1.0 - d) / edge));\n"
                             "}\n";
 static const char *FS_COMPOSE =
     "float4 main(float2 v_uv : TEXCOORD0, uniform sampler2D above : TEXUNIT0, uniform sampler2D below : TEXUNIT1,\n"
@@ -74,9 +76,15 @@ static const char *FS_HUD = "#version 300 es\n"
                             "precision mediump float;\n"
                             "uniform sampler2D tex;\n"
                             "uniform float opacity;\n"
+                            "uniform vec4 circle;\n"
+                            "uniform float edge;\n"
                             "in vec2 v_uv;\n"
                             "out vec4 color;\n"
-                            "void main() { vec4 t = texture(tex, v_uv); color = vec4(t.rgb, t.a * opacity); }\n";
+                            "void main() {\n"
+                            "  vec4 t = texture(tex, v_uv);\n"
+                            "  float d = length((v_uv - circle.xy) / circle.zw);\n"
+                            "  color = vec4(t.rgb, t.a * opacity * clamp((1.0 - d) / edge, 0.0, 1.0));\n"
+                            "}\n";
 // Engine A with the 3D layer: below / 3D / above, then the master brightness.
 static const char *FS_COMPOSE =
     "#version 300 es\n"
@@ -204,7 +212,7 @@ static GLuint s_prog_plain, s_prog_compose, s_tex_plain[2], s_tex_above, s_tex_b
 static GLuint s_prog_layers;
 #define HUD_ROWS GPU2D_HUD_ROWS
 static GLuint s_prog_hud, s_tex_hud;
-static GLint s_u_hud_opacity;
+static GLint s_u_hud_opacity, s_u_hud_circle, s_u_hud_edge;
 static bool s_layers_ok;
 static GLint s_ul_width, s_ul_k3, s_ul_bg0_3d, s_ul_prio, s_ul_enabled, s_ul_first03, s_ul_first45, s_ul_second03,
     s_ul_second45, s_ul_effect, s_ul_backdrop, s_ul_bright;
@@ -256,6 +264,8 @@ void present_init(void) {
     s_prog_plain = program(FS_PLAIN);
     s_prog_hud = program(FS_HUD);
     s_u_hud_opacity = glGetUniformLocation(s_prog_hud, "opacity");
+    s_u_hud_circle = glGetUniformLocation(s_prog_hud, "circle");
+    s_u_hud_edge = glGetUniformLocation(s_prog_hud, "edge");
     s_prog_compose = program(FS_COMPOSE);
     glUseProgram(s_prog_compose);
     glUniform1i(glGetUniformLocation(s_prog_compose, "above"), 0);
@@ -355,6 +365,7 @@ static const int s_hud_src[2][HUD_PIECES][5] = {
      {120, GPU2D_HUD_ROW_TIME, 136, 24, 0},
      {120, GPU2D_HUD_ROW_MAP, 136, 192, 0},
      {0, GPU2D_HUD_ROW_MAP, 256, 192, 0}}};
+static const int s_hud_src_map_obj[5] = {0, GPU2D_HUD_ROW_MAP_OBJ, 256, 192, 0};
 static const int s_hud_src_whole[5] = {0, GPU2D_HUD_ROW_MAP, 256, 192, 0},
                  s_hud_src_pause[5] = {0, GPU2D_HUD_ROW_PAUSE, 256, 192, 0};
 
@@ -394,7 +405,8 @@ bool present_hud_touch(int x, int y, int *dx, int *dy) {
     int list_src[5] = {list[0], list[1], 144, list[3], list[4]};
     return hud_hit(list_rect, list_src, x, y, dx, dy) ||
            hud_hit(s_hud_layout.time, hud_src(flags, HUD_TIME), x, y, dx, dy) ||
-           (flags & GPU2D_HUD_MAP ? hud_hit(s_hud_layout.map, hud_src(flags, HUD_MAP), x, y, dx, dy)
+           (flags & GPU2D_HUD_ROUND ? hud_hit(s_hud_layout.round, hud_src(flags, HUD_MAP), x, y, dx, dy)
+            : flags & GPU2D_HUD_MAP ? hud_hit(s_hud_layout.map, hud_src(flags, HUD_MAP), x, y, dx, dy)
                                   : hud_hit(s_hud_layout.side, hud_src(flags, HUD_SIDE), x, y, dx, dy));
 }
 
@@ -791,6 +803,7 @@ static bool s_async_started;
 static const FrameSnapshot *(*s_take)(void);
 static void (*s_release)(const FrameSnapshot *);
 static int s_async_scale;
+void present_set_scale(int scale) { if (scale >= 1 && scale <= 4) s_async_scale = scale; }
 static bool s_set_busy[DIRECT_SETS];
 static Staged s_done[2];
 static int s_done_count;
@@ -1141,7 +1154,7 @@ static void draw_layers(const int layout[8], int w, int h, float t) {
 
 static void draw_screens(const int layout[8], int w, int h, float t);
 
-static void draw_hud_piece(const int r[4], const int src[4], float opacity, int w, int h) {
+static void hud_quad(const int r[4], const int src[4], float opacity, const float circle[4], float edge, int w, int h) {
     if (r[2] <= 0 || r[3] <= 0) return;
     float x0 = (float) r[0] / w * 2 - 1, x1 = (float) (r[0] + r[2]) / w * 2 - 1;
     float y0 = 1 - (float) r[1] / h * 2, y1 = 1 - (float) (r[1] + r[3]) / h * 2;
@@ -1149,6 +1162,8 @@ static void draw_hud_piece(const int r[4], const int src[4], float opacity, int 
     float v0 = src[1] / (float) HUD_ROWS, v1 = (src[1] + src[3]) / (float) HUD_ROWS;
     const float v[] = {x0, y0, u0, v0, x1, y0, u1, v0, x0, y1, u0, v1, x1, y1, u1, v1};
     glUniform1f(s_u_hud_opacity, opacity);
+    glUniform4f(s_u_hud_circle, circle[0], circle[1], circle[2], circle[3]);
+    glUniform1f(s_u_hud_edge, edge);
     glBindVertexArray(0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, v);
@@ -1156,6 +1171,18 @@ static void draw_hud_piece(const int r[4], const int src[4], float opacity, int 
     glEnableVertexAttribArray(0);
     glEnableVertexAttribArray(1);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+}
+
+static void draw_hud_piece(const int r[4], const int src[4], float opacity, int w, int h) {
+    static const float none[4] = {0.5f, 0.5f, 1000.0f, 1000.0f};
+    hud_quad(r, src, opacity, none, 1.0f, w, h);
+}
+
+static void draw_round_map(const int r[4], int w, int h) {
+    const float cx = 128.0f, cy = 104.0f, radius = 78.0f;
+    const float circle[4] = {cx / 256.0f, (GPU2D_HUD_ROW_MAP + cy) / HUD_ROWS, radius / 256.0f, radius / HUD_ROWS};
+    hud_quad(r, s_hud_src_whole, 0.85f, circle, 10.0f / radius, w, h);
+    draw_hud_piece(r, s_hud_src_map_obj, 1.0f, w, h);
 }
 
 static void draw_hud(int w, int h) {
@@ -1174,7 +1201,8 @@ static void draw_hud(int w, int h) {
     } else {
         draw_hud_piece(l->list, hud_src(flags, HUD_LIST), 0.9f, w, h);
         draw_hud_piece(l->time, hud_src(flags, HUD_TIME), 1.0f, w, h);
-        if (flags & GPU2D_HUD_MAP) draw_hud_piece(l->map, hud_src(flags, HUD_MAP), 0.85f, w, h);
+        if (flags & GPU2D_HUD_ROUND) draw_round_map(l->round, w, h);
+        else if (flags & GPU2D_HUD_MAP) draw_hud_piece(l->map, hud_src(flags, HUD_MAP), 0.85f, w, h);
         else draw_hud_piece(l->side, hud_src(flags, HUD_SIDE), 0.85f, w, h);
     }
     if (flags & GPU2D_HUD_PAUSE) draw_hud_piece(l->pause, s_hud_src_pause, 1.0f, w, h);

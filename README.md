@@ -30,17 +30,37 @@ the pad), the D-pad or left stick steers, and L, R, START and SELECT work as usu
 balloons in Balloon Battle. The front touch screen is the DS touch screen.
 
 In races the race fills the screen and the bottom screen becomes a HUD over it, like a console Mario Kart: the
-racers list under the item box, the time at the top, the map in the lower right corner, and the pause menu in the
+racers list under the item box, the time at the top, a round map around you in the lower right corner, and the pause menu in the
 middle. Touching them works like touching the DS's bottom screen. Outside races you get the big screen with the
 small one in the corner.
 
 There are a few extras:
 - **SELECT + R** swaps the top and bottom screens.
 - **SELECT + L** switches between that and showing just one screen.
-- **Touch the top left corner** of the screen to open the settings. There you can turn on anti-aliasing (2x or 4x)
-  to smooth the jagged edges of the 3D, and pick the race screen: **HUD** (the race fills the screen) or **Classic**
-  (the big screen with the small one in the corner, like outside races). The game pauses while the settings are
-  open; tap Back, tap outside the box or press Circle to go back.
+- **Touch the top left corner** of the screen to open the settings. The game pauses while they are open; tap Back,
+  tap outside the box or press Circle to go back. Tap a setting to change it (tap its left arrow to go back one), or use
+  Up/Down to pick a setting and Left/Right to change it.
+  - **Anti-aliasing**: Off, 2x or 4x, smooths the jagged edges of the 3D.
+  - **Race screen**: **HUD** (the race fills the screen) or **Classic** (the big screen with the small one in the
+    corner, like outside races).
+  - **3D resolution**: 1x, 2x or 3x the DS resolution. 2x is the default.
+  - **Mod**: None, or one of the mods you've added (see Mods). It applies when you restart the game.
+  - **Unlock all**: tap Unlock (or press Cross on it) and restart the game to unlock every cup, character and kart.
+    This changes your save for good. (Thanks to [mkds-android](https://github.com/RonyxDumb/mkds-android) for this, the
+    round map, the mod support and some widescreen HUD fixes.)
+
+## Mods
+Put a mod for Mario Kart DS (Europe) in `ux0:data/mkds/mods/`: either an **.xdelta** patch, the usual way ROM hacks
+are shared, or a ROM that's already patched (**.nds**). The file name is the mod's name. The next time the game starts,
+it adds the mod (a progress bar shows it): the mod gets its own folder, `mods/<name>/`, with the game made from it and
+its own save, and the .xdelta or .nds you put there is deleted. Then pick the mod in the settings under Mod and restart
+the game. If a mod can't be added, the game says why and renames its file to `.failed`.
+
+The game's code here is the port's own, not the ROM's, so a mod brings its files: every file of the game that the mod
+changes (graphics, models, courses that take the place of the original ones, music, texts) is used. Courses, cups and
+menus that a mod adds with its own code are not. With CTGP Nitro, for example, you get its title, menus and artwork
+and its versions of the original courses, but not its new courses. When a mod changes the game's code, its sound
+archive is left out too.
 
 ## Playing online
 Nintendo WFC works out of the box through [Wiimmfi](https://wiimmfi.de), the community server that keeps DS online
@@ -54,8 +74,9 @@ uses the Vita's own connection, so the game's Nintendo WFC Settings option is go
 | `ux0:data/mkds/rom.nds` | your ROM |
 | `ux0:data/mkds/mkds.sav` | your save (nickname, records, ghosts, missions) |
 | `ux0:data/mkds/language.txt` | the language you picked last |
-| `ux0:data/mkds/settings.txt` | your settings (anti-aliasing, race screen) |
+| `ux0:data/mkds/settings.txt` | your settings |
 | `ux0:data/mkds/wfc.bin` | your Nintendo WFC (Wiimmfi) account |
+| `ux0:data/mkds/mods/<mod>/` | a mod you added: `game.nds` (the game with the mod) and `save.sav` (its save) |
 | `ux0:data/mkds/mkds.log` | a short log of the last startup, plus any errors |
 
 If something goes wrong, the log and any crash dump in `ux0:data/` (a `.psp2dmp` file) are the best things to share.
@@ -81,7 +102,7 @@ That gives you `build/mkds.vpk`. Clang compiles the code, and VitaSDK's GCC and 
 | `platform/` | the DS hardware the game expects: 2D, 3D, sound, timers, DMA, save chip, OS services |
 | `platform/vita/` | the Vita side: startup, memory, threads, controls, audio, frame timing |
 | `platform/gl/` | the 3D renderer and the code that puts both screens on the Vita's display |
-| `vita/` | the toolchain file and the LiveArea images |
+| `vita/` | the toolchain file, the LiveArea images, vitaGL and [XZ Embedded](https://tukaani.org/xz/embedded.html) (for compressed mod patches) |
 
 ## How it works, briefly
 - **Memory.** The DS's memory (RAM, hardware registers, palettes, video memory...) lives in normal memory blocks, and

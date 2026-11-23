@@ -74,6 +74,7 @@ void port_vram_unlock(void);
 
 // ---------------------------------------------------------------- ROM (card.c)
 bool port_rom_open(const char *path);
+void port_rom_set(uint8_t *data, uint32_t size);
 // Save data: loaded from / flushed to this file.
 void port_save_set_path(const char *path);
 void port_save_flush(void);

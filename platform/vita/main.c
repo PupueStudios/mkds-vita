@@ -6,6 +6,7 @@
 #include "hostapi.h"
 #include "vita.h"
 #include "menu.h"
+#include "mods.h"
 
 #include <psp2/apputil.h>
 #include <psp2/common_dialog.h>
@@ -148,6 +149,7 @@ static void apply_screens_layout(void) {
         set_rect(s_hud_layout.time, (w - 272) / 2, 6, 272, 48);
         set_rect(s_hud_layout.side, w - 154 - m, h - 217 - m, 154, 217);
         set_rect(s_hud_layout.map, w - 290 - m, h - 217 - m, 290, 217);
+        set_rect(s_hud_layout.round, w - m - 110 - 180, h - m - 110 - 146, 361, 271);
         set_rect(s_hud_layout.whole, w - 290 - m, h - 217 - m, 290, 217);
         set_rect(s_hud_layout.pause, (w - 435) / 2, (h - 326) / 2, 435, 326);
         if (present_hud_usable()) {
@@ -332,7 +334,21 @@ int main(void) {
 
 
     bool memory_ok = port_mem_init();
-    bool rom_ok = memory_ok && guest_load() && port_rom_open(VITA_ROM_PATH);
+    char mod[VITA_MOD_NAME], mod_rom[256], save_path[256] = VITA_SAVE_PATH;
+    vita_menu_mod_setting(mod, sizeof(mod));
+    bool rom_ok = memory_ok && guest_load(), base_loaded = false;
+    if (rom_ok && vita_mods_pending()) {
+        rom_ok = base_loaded = port_rom_open(VITA_ROM_PATH);
+        if (rom_ok) vita_mods_install();
+    }
+    if (rom_ok && vita_mod_paths(mod, mod_rom, save_path, sizeof(save_path)) && port_rom_open(mod_rom)) {
+        port_log("Mod: %s", mod);
+    } else {
+        mod[0] = 0;
+        snprintf(save_path, sizeof(save_path), "%s", VITA_SAVE_PATH);
+        rom_ok = rom_ok && (base_loaded || port_rom_open(VITA_ROM_PATH));
+    }
+    vita_menu_set_active_mod(mod);
 
     vglSetupRuntimeShaderCompiler(SHARK_OPT_UNSAFE, SHARK_ENABLE, SHARK_DISABLE, SHARK_DISABLE);
     vglUseCachedMem(GL_TRUE);
@@ -357,7 +373,7 @@ int main(void) {
         fail("The shader compiler is missing.\n\nExtract libshacccg.suprx with ShaRKBR33D (it puts it in "
              "ur0:data/libshacccg.suprx), then start the game again.");
     }
-    port_save_set_path(VITA_SAVE_PATH);
+    port_save_set_path(save_path);
     guest_set_language(vita_language_screen(system_language()));
     port_log("Game loaded");
     present_init();
@@ -371,6 +387,7 @@ int main(void) {
     { extern int g_vita_main_priority; g_vita_main_priority = s_main_priority; }
     g_frame_ready_hook = present_async_frame_ready;
     present_async_start(port_frame_take, port_frame_release, 2);
+    vita_menu_load();
     g_gx3d_async = true;
     g_gx3d_gpu_vertices = gl3d_gpu_vertices_supported();
     {
@@ -393,7 +410,6 @@ int main(void) {
     }
     guest_start_game();
     vita_audio_start();
-    vita_menu_load();
     hapi_inet_state();
     apply_screens();
 

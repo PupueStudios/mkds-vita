@@ -201,17 +201,22 @@ static void draw_text_bg(const Engine *e, int bg, int y, uint16_t *out) {
     const uint8_t *vram = e->f->vram;
     uint32_t row_base = screen_base + (sy >= 256 ? (w == 512 ? 2 : 1) * 0x800 : 0) + ((sy & 255) / 8) * 64;
     uint32_t ty0 = sy & 7;
-    int x = x0;
-    while (x < x1) {
-        if ((x < 0 || x > 255) && e->side[0]) {
+    const int ranges[3][2] = {{x0, x1}, {-e->margin, 0}, {256, 256 + e->margin}};
+    for (int range = 0; range < 3; range++) {
+    if (range == 1 && !(e->hud_shift && bg != e->ext_bg && e->margin > 0 && (out[0] & 0x8000) && (out[255] & 0x8000))) {
+        break;
+    }
+    int x = ranges[range][0], xend = ranges[range][1];
+    while (x < xend) {
+        if ((x < 0 || x > 255) && e->side[0] && range == 0) {
             out[x] = fade555(e->side[x > 255][y], x < 0 ? -x : x - 255, e->margin);
             x++;
             continue;
         }
         uint32_t sx = ((uint32_t) x + hofs) & (w - 1);
         int end = x + (int) (8 - (sx & 7));
-        if (end > x1) end = x1;
-        if (e->side[0] && x <= 255 && end > 256) end = 256;
+        if (end > xend) end = xend;
+        if (e->side[0] && range == 0 && x <= 255 && end > 256) end = 256;
         uint32_t map_addr = row_base + (sx >= 256 ? 0x800 : 0) + ((sx & 255) / 8) * 2;
         uint16_t entry = rd16(e->map, vram, e->bg_region, map_addr);
         uint32_t ty = entry & 0x800 ? 7 - ty0 : ty0;
@@ -261,6 +266,7 @@ static void draw_text_bg(const Engine *e, int bg, int y, uint16_t *out) {
                 out[x] = (pal[idx] & 0x7fff) | 0x8000;
             }
         }
+    }
     }
 }
 
@@ -431,6 +437,14 @@ static void plan_hud_shift(Engine *e) {
     for (int i = 0; i < 128; i++) {
         if (!on[i]) continue;
         int g = group[i], w = gx1[g] - gx0[g], cx = (gx0[g] + gx1[g]) / 2;
+        if (gx1[g] >= 232 && gx0[g] >= 64) {
+            e->obj_shift[i] = 1;
+            continue;
+        }
+        if (gx0[g] <= 24 && gx1[g] <= 192) {
+            e->obj_shift[i] = -1;
+            continue;
+        }
         if (w > 128) continue; // spans the screen
         if (cx < 72) e->obj_shift[i] = -1;
         else if (cx > 184) e->obj_shift[i] = 1;
@@ -1616,9 +1630,21 @@ int gpu2d_render_hud(const FrameSnapshot *f, uint32_t *out) {
     s_last_kind = kind;
     s_tick++;
     bool do_map = all || !list || (s_tick & 1), do_list = list && (all || !(s_tick & 1));
+    bool round = map && list;
     if (do_map) {
-        HudRows rows = {&e, out + GPU2D_HUD_ROW_MAP * 256, 192, NULL};
+        Engine m = e;
+        if (round) m.dispcnt &= ~0x1000u;
+        HudRows rows = {&m, out + GPU2D_HUD_ROW_MAP * 256, 192, NULL};
         gpu2d_parallel_rows(hud_rows, &rows);
+        if (round) {
+            static uint8_t used_map[192];
+            Engine o = sprites;
+            o.obj_lo = hi;
+            o.obj_hi = 128;
+            sprite_lines(&o, hi, 128, used_map);
+            HudRows orow = {&o, out + GPU2D_HUD_ROW_MAP_OBJ * 256, 192, used_map};
+            gpu2d_parallel_rows(hud_rows, &orow);
+        }
     }
     if (do_list) {
         static uint8_t used_list[192], used_time[192];
@@ -1643,7 +1669,8 @@ int gpu2d_render_hud(const FrameSnapshot *f, uint32_t *out) {
         gpu2d_parallel_rows(hud_rows, &prow);
     }
     if (!e.hud) return GPU2D_HUD_SHOWN | GPU2D_HUD_PICTURE;
-    return GPU2D_HUD_SHOWN | (map ? GPU2D_HUD_MAP : 0) | (pause ? GPU2D_HUD_PAUSE : 0) | (list ? GPU2D_HUD_LIST : 0);
+    return GPU2D_HUD_SHOWN | (map ? GPU2D_HUD_MAP : 0) | (pause ? GPU2D_HUD_PAUSE : 0) | (list ? GPU2D_HUD_LIST : 0) |
+           (round ? GPU2D_HUD_ROUND : 0);
 }
 
 void gpu2d_render_split(const FrameSnapshot *f, uint32_t *engine_a_above, uint32_t *engine_a_below,

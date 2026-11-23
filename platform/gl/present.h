@@ -11,6 +11,7 @@ void present_update(const FrameSnapshot *f, int scale);
 // last one; less for frames in between at display rates above 60 Hz).
 void present_draw(const int layout[8], int w, int h, float t);
 void present_refresh_3d(void);
+void present_set_scale(int scale);
 void present_draw_overlay(const uint32_t *rgba, bool changed, int tw, int th, const int rect[4], int w, int h);
 // The framebuffer present_draw draws into, when it is not the window's (0): a headset's swapchain image.
 void present_set_target(uint32_t framebuffer);
@@ -36,7 +37,7 @@ void present_async_swapped(void);
 void present_async_frame_ready(void);
 void present_set_screen_areas(int top, int bottom);
 typedef struct PresentHudLayout {
-    int list[4], time[4], side[4], map[4], whole[4], pause[4];
+    int list[4], time[4], side[4], map[4], round[4], whole[4], pause[4];
 } PresentHudLayout;
 void present_set_hud(const PresentHudLayout *layout, bool draw);
 int present_hud_flags(void);

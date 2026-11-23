@@ -180,6 +180,9 @@ u32 StartOrUpdateSndHandleSound(u32 seqArcNo, u32 soundId, Vec3 *positionSource,
         return NNS_SndPlayerStopSeq(handle, 0);
     }
     volumeForPriority = params.mVolumeForPriority;
+#ifdef PLATFORM_PORT
+    if (NNS_SndArcGetSeqArcParam(seqArcNo, soundId) == NULL) return 0;
+#endif
     priority = volumeForPriority + (NNS_SndArcGetSeqArcParam(seqArcNo, soundId)->mPlayerPrio - 0x40);
     if (priority > 0) {
         if (priority >= 0x7f) {
