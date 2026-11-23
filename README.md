@@ -72,7 +72,7 @@ uses the Vita's own connection, so the game's Nintendo WFC Settings option is go
 | Where | What |
 |---|---|
 | `ux0:data/mkds/rom.nds` | your ROM |
-| `ux0:data/mkds/mkds.sav` | your save (nickname, records, ghosts, missions) |
+| `ux0:data/mkds/mkds.sav` | your save |
 | `ux0:data/mkds/language.txt` | the language you picked last |
 | `ux0:data/mkds/settings.txt` | your settings |
 | `ux0:data/mkds/wfc.bin` | your Nintendo WFC (Wiimmfi) account |
@@ -93,17 +93,6 @@ ninja -C build
 
 That gives you `build/mkds.vpk`. Clang compiles the code, and VitaSDK's GCC and tools link it and package the VPK.
 
-## What's where
-| Folder | What's inside |
-|---|---|
-| `game/` | the game's code from the decompilation, plus the DS SDK libraries it uses |
-| `include/` | the game's headers, a few replaced for the port, and `port_prefix.h` |
-| `msl_include/` | the C library headers the game is compiled against |
-| `platform/` | the DS hardware the game expects: 2D, 3D, sound, timers, DMA, save chip, OS services |
-| `platform/vita/` | the Vita side: startup, memory, threads, controls, audio, frame timing |
-| `platform/gl/` | the 3D renderer and the code that puts both screens on the Vita's display |
-| `vita/` | the toolchain file, the LiveArea images, vitaGL and [XZ Embedded](https://tukaani.org/xz/embedded.html) (for compressed mod patches) |
-
 ## How it works, briefly
 - **Memory.** The DS's memory (RAM, hardware registers, palettes, video memory...) lives in normal memory blocks, and
   every fixed DS address in the game goes through `DS_ADDR()` / `DS_PTR()` to find its place.
@@ -116,6 +105,8 @@ That gives you `build/mkds.vpk`. Clang compiles the code, and VitaSDK's GCC and 
 - **Frame timing.** The game runs in step with the Vita's screen, so every frame is ready just before it's shown.
 
 ## Credits
-- **Mario Kart DS decompilation** by Tyler Zars and RonyxDumb
-- **[vitaGL](https://github.com/Rinnegatamante/vitaGL)** by Rinnegatamante
-- **[CapUnlocker](https://github.com/GrapheneCt/CapUnlocker)** by GrapheneCt
+- Tyler Zars and RonyxDumb for the Mario Kart DS decompilation
+- Rinnegatamante for vitaGL
+- GrapheneCt for CapUnlocker
+- The Wiimmfi team for keeping DS online play alive
+- XZ Embedded (Lasse Collin and contributors) for reading compressed mod patches
