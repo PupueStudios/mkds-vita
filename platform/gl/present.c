@@ -258,6 +258,7 @@ static void take_list(const FrameSnapshot *f) {
 
 void present_set_wide(float aspect) { s_wide = aspect > 4.0f / 3.0f ? aspect / (4.0f / 3.0f) : 1.0f; }
 bool present_is_race(void) { return s_shown.race; }
+bool present_is_dual_3d(void) { return s_alt; }
 uint64_t present_shown_time_ns(void) { return s_shown.snap ? s_shown.snap->time_ns : 0; }
 
 void present_init(void) {
@@ -523,7 +524,13 @@ static void stage_cpu(Staged *st) {
         g_present_stage = "2D (dual-screen 3D)";
         gpu2d_skip_engines(false, s_alt_streak > 3);
         gpu2d_render_split(f, s_buf_a, s_buf_below, s_buf_b, margin_a, margin_b);
-        if (g_capture_done) g_capture_done(); // the game waits for the capture
+        if (st->capture && LIST3D(f)->polygon_count == 0) {
+            static uint32_t s_cap_3d[256 * 192], s_cap_a[GPU2D_MAX_W * 192], s_cap_b[GPU2D_MAX_W * 192];
+            soft3d_render(LIST3D(f), f, s_cap_3d);
+            gpu2d_render(f, s_cap_3d, s_cap_a, s_cap_b, 0);
+        } else if (g_capture_done) {
+            g_capture_done();
+        }
     } else {
         if (st->capture) {
             uint64_t t1 = present_clock_us();

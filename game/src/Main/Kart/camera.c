@@ -615,6 +615,10 @@ static inline void SetNextCourseMapCamera(Camera *camera) {
     gCameraEntryChanged = 1;
 }
 
+#ifdef PLATFORM_PORT
+extern int port_one_screen(void);
+#endif
+
 MtxFx43 *UpdateChainCameraPair(void) {
     if (gSecondChainCamera->mCourseMapCamera != NULL) {
         if (gSecondChainCamera->mCourseMapCamera->mKind == COURSE_MAP_CAMERA_KIND_CHAIN_PAIR) {
@@ -634,6 +638,13 @@ MtxFx43 *UpdateChainCameraPair(void) {
     } else {
         UpdateCameraEntry(gSecondChainCamera);
     }
+#ifdef PLATFORM_PORT
+    if (port_one_screen()) {
+        UpdateCameraView(gFirstChainCamera);
+        gCurrentChainCamera = gFirstChainCamera;
+        return &gFirstChainCamera->mViewMatrix;
+    }
+#endif
     if (GetRaceUpdateFramesMod2() == 0) {
         UpdateCameraView(gFirstChainCamera);
         gCurrentChainCamera = gFirstChainCamera;

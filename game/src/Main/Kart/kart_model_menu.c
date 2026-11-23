@@ -365,6 +365,10 @@ void SetupCamera(Camera *camera) {
     camera->mKartMoveScale = TO_FIXED12(1);
 }
 
+#ifdef PLATFORM_PORT
+extern int port_one_screen(void);
+#endif
+
 void RefreshCameraProjection(Camera *camera) {
     s32 top;
     s32 bottom;
@@ -385,7 +389,11 @@ void RefreshCameraProjection(Camera *camera) {
     camera->mFrustumLeft = MUL_FIXED12_NO_ROUND(-camera->mFrustumTop, camera->mAspectRatio);
     top = camera->mFrustumTop;
     bottom = camera->mFrustumBottom;
+#ifdef PLATFORM_PORT
+    switch (port_one_screen() ? CAMERA_FRUSTUM_SHIFT_NONE : camera->mFrustumShift) {
+#else
     switch (camera->mFrustumShift) {
+#endif
         case CAMERA_FRUSTUM_SHIFT_UP:
             top <<= 1;
             bottom = -top;

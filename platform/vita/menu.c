@@ -11,6 +11,7 @@
 #include <string.h>
 
 #define SETTINGS_PATH VITA_DATA_DIR "/settings.txt"
+#define UNLOCK_PATH VITA_DATA_DIR "/unlock"
 #define PANEL_W 480
 #define PANEL_H 372
 #define CORNER_W 116
@@ -252,8 +253,8 @@ const uint32_t *vita_menu_progress_panel(const char *title, const char *what, in
 static void save(void) {
     FILE *f = fopen(SETTINGS_PATH, "w");
     if (!f) return;
-    fprintf(f, "msaa=%d\nlayout=%s\nscale3d=%d\nunlock=%d\nmod=%s\n", s_msaa, s_classic ? "classic" : "hud",
-            s_scale3d, s_unlock ? 1 : 0, s_mod ? s_mods[s_mod - 1] : "");
+    fprintf(f, "msaa=%d\nlayout=%s\nscale3d=%d\nmod=%s\n", s_msaa, s_classic ? "classic" : "hud", s_scale3d,
+            s_mod ? s_mods[s_mod - 1] : "");
     fclose(f);
 }
 
@@ -288,9 +289,11 @@ static void set_scale3d(int scale) {
 
 static void unlock_all(void) {
     if (s_unlock) return;
+    FILE *f = fopen(UNLOCK_PATH, "w");
+    if (!f) return;
+    fclose(f);
     s_unlock = true;
     s_dirty = true;
-    save();
     port_log("Unlock everything: restart the game to apply");
 }
 
@@ -314,9 +317,9 @@ static void set_option(int row, int i) {
 }
 
 int port_unlock_all(void) {
-    if (!s_unlock) return 0;
+    if (remove(UNLOCK_PATH) != 0) return 0;
     s_unlock = false;
-    save();
+    s_dirty = true;
     port_log("Unlock everything: done");
     return 1;
 }
@@ -361,7 +364,6 @@ void vita_menu_load(void) {
             if (sscanf(line, "layout=%31s", word) == 1) s_classic = strcmp(word, "classic") == 0;
             int n;
             if (sscanf(line, "scale3d=%d", &n) == 1 && n >= 1 && n <= 3) s_scale3d = n;
-            if (sscanf(line, "unlock=%d", &n) == 1) s_unlock = n != 0;
         }
         fclose(f);
     }
@@ -370,6 +372,9 @@ void vita_menu_load(void) {
     present_set_scale(s_scale3d);
     if (s_msaa) port_log("Anti-aliasing: %dx", s_msaa);
     if (s_scale3d != 2) port_log("3D resolution: %dx", s_scale3d);
+    FILE *u = fopen(UNLOCK_PATH, "r");
+    s_unlock = u != NULL;
+    if (u) fclose(u);
     if (s_unlock) port_log("Unlock everything: applying");
     if (strcmp(wanted, s_mod_active) != 0) save();
 }

@@ -456,6 +456,10 @@ void DrawRaceLinkLevel(RaceHudOamBuffer *oamBuffer) {
     }
 }
 
+#ifdef PLATFORM_PORT
+extern int port_one_screen(void);
+#endif
+
 void UploadRaceStartGpOam(void) {
     u32 powerBit;
     u32 displayBits;
@@ -463,6 +467,9 @@ void UploadRaceStartGpOam(void) {
     DC_FlushRange(&gRaceStartGp->mMainOam, 0x400);
     GX_LoadOAM(&gRaceStartGp->mMainOam, 0, 0x400);
     powerBit = (reg_GX_POWCNT & 0x8000) >> 15;
+#ifdef PLATFORM_PORT
+    if (port_one_screen()) powerBit = 1;
+#endif
     if (powerBit != 0) {
         if (powerBit == 1) {
             displayBits = (reg_GX_DISPCNT & REG_GX_DISPCNT_DISPLAY_MASK) >> 8;

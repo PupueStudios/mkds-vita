@@ -112,12 +112,14 @@ static void fail(const char *text) {
     sceKernelExitProcess(0);
 }
 
-static bool s_single, s_swapped, s_shown_race, s_hud_active, s_hud_shown;
+static bool s_single, s_swapped, s_shown_race, s_shown_dual, s_hud_active, s_hud_shown;
 static bool s_redraw = true;
 static int s_layout[8];
 static PresentHudLayout s_hud_layout;
 
 static void set_rect(int *r, int x, int y, int w, int h) { r[0] = x, r[1] = y, r[2] = w, r[3] = h; }
+
+int port_one_screen(void) { return !s_single && !s_swapped && !vita_menu_classic(); }
 
 static void apply_screens_layout(void);
 static void apply_screens(void) {
@@ -134,6 +136,7 @@ static void apply_screens_layout(void) {
     memset(s_layout, 0, sizeof(s_layout));
     s_hud_shown = false;
     s_shown_race = present_is_race();
+    s_shown_dual = present_is_dual_3d();
     s_hud_active = !s_single && !s_swapped && s_shown_race && !vita_menu_classic();
     if (s_single) {
         if (s_shown_race != s_swapped) {
@@ -157,6 +160,10 @@ static void apply_screens_layout(void) {
             s_hud_shown = true;
             return;
         }
+    }
+    if (port_one_screen() && s_shown_dual) {
+        top[2] = w, top[3] = h;
+        return;
     }
     int ih = h * 32 / 100, side = (w - w43) / 2 * 3 / 4;
     if (side > ih) ih = side;
@@ -440,7 +447,7 @@ int main(void) {
             if (present_is_race() != s_shown_race) {
                 s_swapped = false;
                 apply_screens();
-            } else if (s_hud_active && present_hud_usable() != s_hud_shown) {
+            } else if ((s_hud_active && present_hud_usable() != s_hud_shown) || present_is_dual_3d() != s_shown_dual) {
                 apply_screens();
             }
         }

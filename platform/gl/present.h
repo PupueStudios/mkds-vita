@@ -18,6 +18,7 @@ void present_set_target(uint32_t framebuffer);
 // Widescreen: the aspect ratio the race cameras use (guest_set_aspect); race frames are drawn that wide.
 void present_set_wide(float aspect);
 bool present_is_race(void); // the last snapshot was a race frame
+bool present_is_dual_3d(void);
 bool present_engine_a_on_top(void);
 
 typedef struct PresentStats {
