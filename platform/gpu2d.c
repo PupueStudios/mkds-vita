@@ -140,7 +140,7 @@ typedef struct Engine {
     // A still picture as the extended layer: beyond the DS screen it shows its edge colours, blurred vertically
     // (per line, BGR555 | 0x8000 when opaque), fading a little towards the outside, instead of repeating.
     const uint16_t *side[2];
-    bool hud;
+    bool hud, hud_backdrop;
     uint8_t obj_mode, obj_lo, obj_hi;
 } Engine;
 
@@ -937,7 +937,7 @@ static void render_engine_line(const Engine *e, int y, const uint32_t *layer3d, 
         bool effects = m & 0x20;
         bool first = (bldcnt >> top0) & 1;
         bool second = (bldcnt >> (8 + top1)) & 1;
-        if (e->hud && top0 == LAYER_BD) {
+        if (e->hud && top0 == LAYER_BD && !e->hud_backdrop) {
             out[x] = 0;
             continue;
         }
@@ -1012,6 +1012,7 @@ static void engine_prepare(Engine *ep, const FrameSnapshot *f, const VramMap *ma
     if (e.ext_bg == 4) e.ext_bg = -1;
     e.side[0] = e.side[1] = NULL;
     e.hud = false;
+    e.hud_backdrop = false;
     e.obj_mode = 0;
     e.obj_lo = e.obj_hi = 0;
     if (e.ext_bg >= 0) {
@@ -1633,7 +1634,10 @@ int gpu2d_render_hud(const FrameSnapshot *f, uint32_t *out) {
     bool round = map && list;
     if (do_map) {
         Engine m = e;
-        if (round) m.dispcnt &= ~0x1000u;
+        if (round) {
+            m.dispcnt &= ~0x1000u;
+            m.hud_backdrop = true;
+        }
         HudRows rows = {&m, out + GPU2D_HUD_ROW_MAP * 256, 192, NULL};
         gpu2d_parallel_rows(hud_rows, &rows);
         if (round) {

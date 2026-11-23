@@ -395,6 +395,8 @@ void hapi_net_mac(uint8_t *mac) {
     memcpy(mac, s_mac, 6);
 }
 
+static int net_errno(int r);
+
 static void send_to(uint32_t ip, uint16_t port, const void *data, uint32_t size) {
     SceNetSockaddrIn a;
     memset(&a, 0, sizeof(a));
@@ -402,7 +404,14 @@ static void send_to(uint32_t ip, uint16_t port, const void *data, uint32_t size)
     a.sin_family = SCE_NET_AF_INET;
     a.sin_addr.s_addr = ip;
     a.sin_port = sceNetHtons(port);
-    sceNetSendto(s_sock, data, size, 0, (const SceNetSockaddr *) &a, sizeof(a));
+    int r = sceNetSendto(s_sock, data, size, 0, (const SceNetSockaddr *) &a, sizeof(a));
+    static uint64_t s_logged_us;
+    uint64_t now = sceKernelGetProcessTimeWide();
+    if (r < 0 && net_errno(r) != SCE_NET_EAGAIN && now - s_logged_us > 5000000) {
+        s_logged_us = now;
+        port_log("Wireless: sending to %d.%d.%d.%d failed (%08x)", (int) (ip & 255), (int) (ip >> 8 & 255),
+                 (int) (ip >> 16 & 255), (int) (ip >> 24), (unsigned) r);
+    }
 }
 
 void hapi_net_send(const HostNetAddr *to, const void *data, uint32_t size) {

@@ -183,7 +183,7 @@ static u64 s_last_poll_ns;
 
 // Scan in progress.
 static bool s_scanning;
-static u64 s_scan_due_ns;
+static u64 s_scan_due_ns, s_scan_start_ns;
 static u32 s_scan_buf;
 
 // Join in progress.
@@ -522,7 +522,8 @@ static void start_scan(u32 scan_buf, u16 time_ms) {
     s_scan_buf = scan_buf;
     if (time_ms < 10) time_ms = 10;
     if (time_ms > 200) time_ms = 200;
-    s_scan_due_ns = now_ns() + (u64) time_ms * 1000000ull;
+    s_scan_start_ns = now_ns();
+    s_scan_due_ns = s_scan_start_ns + (u64) time_ms * 1000000ull;
     set_state(WIRELESS_UNIT_STATE_SCANNING);
 }
 
@@ -552,12 +553,22 @@ static void scan_result(void) {
     queue(m);
 }
 
+static const char *join_reason(u16 result) {
+    switch (result) {
+    case WIRELESS_RESULT_REFUSED: return "the game was closed";
+    case WIRELESS_RESULT_NOT_LISTED: return "the host is not taking players now";
+    case WIRELESS_RESULT_LIST_FULL: return "the game is full";
+    case 9: return "the host did not answer";
+    default: return "unknown reason";
+    }
+}
+
 static void join_failed(u16 result) {
     s_joining = false;
     set_state(WIRELESS_UNIT_STATE_POWERED_ON);
     WirelessMessage *m = new_message(WIRELESS_REQUEST_ENTER_HOST, result);
     queue(m);
-    port_log("Wireless: could not join the game (%d)", result);
+    port_log("Wireless: could not join the game: %s (%d)", join_reason(result), result);
 }
 
 // ------------------------------------------------------------------------------------------------ VBlank sync
@@ -901,8 +912,8 @@ static void deliver_port_data(u16 port, u16 aid, const u8 *mac, u16 mp_seq, cons
 #define DS_GAME_MESSAGE 5           // offset of the byte that is sent once (SharingSendRecord.mSendByte)
 #define DS_DEADLINE_PERCENT 85      // of the frame: when the parent stops waiting for records
 #define DS_OUT_MAX 30               // sets on their way to a child at most (they wait in its queue of MAX_HELD)
-#define DS_SURPLUS_FRAMES 120       // records waiting for this many frames: one frame of delay is taken out
-#define DS_SURPLUS_FRAMES_DEEP 15   // the same with three or more waiting
+#define DS_SURPLUS_FRAMES 30        // records waiting for this many frames: one frame of delay is taken out
+#define DS_SURPLUS_FRAMES_DEEP 4    // the same with three or more waiting
 
 static bool link_slow(const Link *l) { return l->srtt_ns >= DS_SLOW_NS; }
 
@@ -1031,8 +1042,18 @@ static void ds_child_pace(void) {
         const WMDataSharingInfo *ds = w->mPortCallbackArgs[port];
         if (!ds) continue;
         int unread = ((ds->mWriteIndex - ds->mReadIndex) & 3) + s_held_count;
-        if (unread >= 3) port_os_shift_vblank(-250000); // 1.5 % faster
-        else if (unread == 0) port_os_shift_vblank(80000);
+        if (unread >= 3) {
+            int64_t shift = (int64_t) (unread - 2) * 1000000;
+            port_os_shift_vblank(-(shift > 4000000 ? 4000000 : shift));
+        } else if (unread == 0) {
+            port_os_shift_vblank(80000);
+        }
+        static u64 s_logged_ns;
+        u64 now = now_ns();
+        if (unread >= 6 && since(now, s_logged_ns) > 5000000000ull) {
+            s_logged_ns = now;
+            port_log("Wireless: %d frames behind the host, catching up", unread);
+        }
         return;
     }
 }
@@ -1110,9 +1131,15 @@ static Link *link_of(const NetHeader *h, const HostNetAddr *from) {
     return l;
 }
 
+static void refuse(const HostNetAddr *from, u16 result) {
+    send_packet(from, PKT_JOIN_NO, result, NULL, 0);
+    port_log("Wireless: a player could not join: %s", join_reason(result));
+}
+
 static void on_join(const NetHeader *h, const JoinBody *j, const HostNetAddr *from) {
     if (!s_parent || h->session != s_session) {
-        send_packet(from, PKT_JOIN_NO, WIRELESS_RESULT_REFUSED, NULL, 0);
+        if (s_parent) refuse(from, WIRELESS_RESULT_REFUSED);
+        else send_packet(from, PKT_JOIN_NO, WIRELESS_RESULT_REFUSED, NULL, 0);
         return;
     }
     for (int a = 1; a < MAX_LINKS; a++) { // a repeated request: answer again
@@ -1123,7 +1150,7 @@ static void on_join(const NetHeader *h, const JoinBody *j, const HostNetAddr *fr
         }
     }
     if (!(s_attr & WIRELESS_ATTRIBUTE_ENTRY)) {
-        send_packet(from, PKT_JOIN_NO, WIRELESS_RESULT_NOT_LISTED, NULL, 0);
+        refuse(from, WIRELESS_RESULT_NOT_LISTED);
         return;
     }
     int aid = 0;
@@ -1135,7 +1162,7 @@ static void on_join(const NetHeader *h, const JoinBody *j, const HostNetAddr *fr
         }
     }
     if (!aid) {
-        send_packet(from, PKT_JOIN_NO, WIRELESS_RESULT_LIST_FULL, NULL, 0);
+        refuse(from, WIRELESS_RESULT_LIST_FULL);
         return;
     }
     link_open((u16) aid, from, h->mac);
@@ -1181,11 +1208,21 @@ static void on_join_ok(const NetHeader *h, const HostNetAddr *from) {
     port_log("Wireless: joined the game as player %d", aid);
 }
 
+static u32 s_heard_packets, s_heard_beacons;
+
 static void receive(const u8 *buf, int32_t n, const HostNetAddr *from) {
     if (n < (int32_t) sizeof(NetHeader)) return;
     const NetHeader *h = (const NetHeader *) buf;
-    if (h->magic != NET_MAGIC || h->version != NET_VERSION || h->length > n - (int32_t) sizeof(NetHeader)) return;
+    if (h->magic != NET_MAGIC) return;
+    if (h->version != NET_VERSION) {
+        static bool s_told;
+        if (!s_told) port_log("Wireless: heard a console with another version of the port (%d, this one is %d)", h->version, NET_VERSION);
+        s_told = true;
+        return;
+    }
+    if (h->length > n - (int32_t) sizeof(NetHeader)) return;
     if (!memcmp(h->mac, s_mac, 6)) return; // our own beacon
+    s_heard_packets++;
     const u8 *body = buf + sizeof(NetHeader);
     u64 now = now_ns();
     switch (h->type) {
@@ -1199,9 +1236,11 @@ static void receive(const u8 *buf, int32_t n, const HostNetAddr *from) {
             }
             if (!s_parents[i].used || s_parents[i].heard_ns < s_parents[oldest].heard_ns) oldest = i;
         }
+        s_heard_beacons++;
         if (slot < 0) {
             if (s_joining && s_join_parent == oldest) return;
             slot = oldest;
+            port_log("Wireless: found a game hosted by %02x%02x%02x", h->mac[3], h->mac[4], h->mac[5]);
         }
         Parent *p = &s_parents[slot];
         p->used = true;
@@ -1292,11 +1331,27 @@ bool port_wm7_poll(void) {
             send_beacon();
             s_beacon_ns = now + BEACON_NS;
         }
+        static u64 s_report_ns;
+        bool alone = (s_parent && !(s_status && s_status->mConnectedChildren)) ||
+                     (!s_parent && !s_child && s_scan_start_ns && since(now, s_scan_start_ns) < 2000000000ull);
+        if (!alone) {
+            s_report_ns = now + 10000000000ull;
+        } else if (now >= s_report_ns) {
+            if (s_report_ns) {
+                port_log(s_parent ? "Wireless: hosting, no one has joined yet (heard %u packets, %u from hosts)"
+                                  : "Wireless: looking for games (heard %u packets, %u from hosts)",
+                         s_heard_packets, s_heard_beacons);
+            }
+            s_report_ns = now + 10000000000ull;
+        }
         if (s_scanning && now >= s_scan_due_ns) scan_result();
         if (s_joining) {
             if (since(now, s_join_start_ns) > JOIN_TIMEOUT_NS) {
                 join_failed(9);
             } else if (since(now, s_join_sent_ns) > JOIN_RETRY_NS) {
+                if (since(now, s_join_start_ns) > 1000000000ull && since(now - 1000000000ull, s_join_start_ns) < JOIN_RETRY_NS) {
+                    port_log("Wireless: the host has not answered yet, asking again");
+                }
                 send_packet(&s_parents[s_join_parent].addr, PKT_JOIN, 0, &s_join, sizeof(s_join));
                 s_join_sent_ns = now;
             }

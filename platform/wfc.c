@@ -66,7 +66,10 @@ static uint32_t resolve(const char *name) {
     char host[256];
     lookup_name(name, host, sizeof(host));
     uint32_t ip = hapi_resolve(host);
+    bool numeric = strspn(host, "0123456789.") == strlen(host);
     if (!ip) port_log("Online: cannot find %s", host);
+    else if (!numeric) port_log("Online: %s is %d.%d.%d.%d", host, (int) (ip >> 24), (int) (ip >> 16 & 255), (int) (ip >> 8 & 255),
+                  (int) (ip & 255));
     return ip;
 }
 
@@ -164,7 +167,10 @@ s32 SOC_Socket(s32 protocolFamily, s32 socketType, s32 protocol) {
         if (s_socks[i].state != ST_FREE) continue;
         bool tcp = socketType == 1;
         int32_t fd = hapi_sock_open(tcp);
-        if (fd < 0) return -1;
+        if (fd < 0) {
+            port_log("Online: cannot open a connection");
+            return -1;
+        }
         s_socks[i].fd = fd;
         s_socks[i].state = ST_OPEN;
         s_socks[i].tcp = tcp;
@@ -178,12 +184,20 @@ s32 SOC_Bind(s32 socket, const void *sockAddr) {
     Socket *s = sock_of(socket);
     const SOCSockAddrIn *addr = sockAddr;
     if (!s) return -0x27;
-    return hapi_sock_bind(s->fd, swap16(addr->mPort)) < 0 ? -1 : 0;
+    if (hapi_sock_bind(s->fd, swap16(addr->mPort)) >= 0) return 0;
+    port_log("Online: port %u cannot be used", swap16(addr->mPort));
+    return -1;
+}
+
+static void connect_failed(uint32_t ip, uint16_t port) {
+    port_log("Online: cannot reach %d.%d.%d.%d port %u", (int) (ip >> 24), (int) (ip >> 16 & 255),
+             (int) (ip >> 8 & 255), (int) (ip & 255), port);
 }
 
 static s32 finish_connect(Socket *s) {
     int bits = hapi_sock_poll(s->fd);
     if (bits & HAPI_POLL_ERROR) {
+        port_log("Online: a connection failed");
         s->state = ST_FAILED;
         return -1;
     }
@@ -203,12 +217,15 @@ s32 SOC_Connect(SOCLSocket *socket, SOCSockAddrIn *sockAddr) {
         s->state = ST_CONNECTED;
         return hapi_sock_connect(s->fd, ip, port) < 0 ? -1 : 0;
     }
+    port_log("Online: opening %d.%d.%d.%d port %u", (int) (ip >> 24), (int) (ip >> 16 & 255), (int) (ip >> 8 & 255),
+             (int) (ip & 255), port);
     int32_t r = hapi_sock_connect(s->fd, ip, port);
     if (r == 0) {
         s->state = ST_CONNECTED;
         return 0;
     }
     if (r != HAPI_SOCK_CONNECTING) {
+        connect_failed(ip, port);
         s->state = ST_FAILED;
         return -1;
     }
@@ -219,11 +236,46 @@ s32 SOC_Connect(SOCLSocket *socket, SOCSockAddrIn *sockAddr) {
         r = finish_connect(s);
         if (r != -26) return r;
         if (hapi_now_ns() - start > 20000000000ull) {
+            connect_failed(ip, port);
             s->state = ST_FAILED;
             return -1;
         }
         wait_a_moment();
     }
+}
+
+typedef struct Peer {
+    uint32_t ip;
+    uint16_t port;
+    bool sent, heard, warned;
+    uint64_t first_sent_ns;
+} Peer;
+static Peer s_peers[32];
+static int s_peer_count;
+
+static void peer_note(uint32_t ip, uint16_t port, bool heard) {
+    if (!ip) return;
+    Peer *p = NULL;
+    for (int i = 0; i < s_peer_count; i++) {
+        if (s_peers[i].ip == ip && s_peers[i].port == port) p = &s_peers[i];
+    }
+    if (!p) {
+        if (s_peer_count == 32) return;
+        p = &s_peers[s_peer_count++];
+        memset(p, 0, sizeof(*p));
+        p->ip = ip;
+        p->port = port;
+    }
+    if (!heard && p->sent && !p->heard && !p->warned && hapi_now_ns() - p->first_sent_ns > 10000000000ull) {
+        p->warned = true;
+        port_log("Online: no answer from %d.%d.%d.%d port %u after 10 seconds", (int) (ip >> 24), (int) (ip >> 16 & 255),
+                 (int) (ip >> 8 & 255), (int) (ip & 255), port);
+    }
+    if (heard ? p->heard : p->sent) return;
+    if (heard) p->heard = true;
+    else p->sent = true, p->first_sent_ns = hapi_now_ns();
+    port_log(heard ? "Online: heard from %d.%d.%d.%d port %u" : "Online: sending to %d.%d.%d.%d port %u",
+             (int) (ip >> 24), (int) (ip >> 16 & 255), (int) (ip >> 8 & 255), (int) (ip & 255), port);
 }
 
 static s32 recv_from(s32 handle, void *buffer, s32 length, s32 flags, u32 *ip, u16 *port) {
@@ -237,6 +289,7 @@ static s32 recv_from(s32 handle, void *buffer, s32 length, s32 flags, u32 *ip, u
         uint16_t from_port = 0;
         int32_t n = hapi_sock_recv(s->fd, buffer, (uint32_t) length, &from_ip, &from_port);
         if (n >= 0) {
+            if (!s->tcp) peer_note(from_ip, from_port, true);
             if (ip) *ip = from_ip;
             if (port) *port = from_port;
             return n;
@@ -274,6 +327,15 @@ static s32 send_to(s32 handle, const void *buffer, s32 length, s32 flags, u32 ip
     s32 sent = 0;
     while (sent < length) {
         int32_t n = hapi_sock_send(s->fd, (const u8 *) buffer + sent, (uint32_t) (length - sent), ip, port);
+        if (!s->tcp && n >= 0) peer_note(ip, port, false);
+        if (!s->tcp && n < 0 && n != HAPI_SOCK_AGAIN) {
+            static uint64_t s_logged_ns;
+            if (hapi_now_ns() - s_logged_ns > 5000000000ull) {
+                s_logged_ns = hapi_now_ns();
+                port_log("Online: sending to %d.%d.%d.%d port %u failed", (int) (ip >> 24), (int) (ip >> 16 & 255),
+                         (int) (ip >> 8 & 255), (int) (ip & 255), port);
+            }
+        }
         if (n >= 0) {
             sent += n;
             if (!s->tcp) break;
@@ -488,6 +550,7 @@ u32 CPS_TcpConnect(void) {
         wait_a_moment();
     }
     if (r != 0) {
+        connect_failed(c->ip, c->port);
         hapi_sock_close(c->fd);
         c->fd = -1;
         return 1;
