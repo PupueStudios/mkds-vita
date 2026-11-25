@@ -129,6 +129,7 @@ typedef struct Link {
     u32 recv_next;
     bool mp_ready;  // a child that started MP
     int64_t srtt_ns; // smoothed round trip time, -1 = none yet
+    bool slow;
     // A parent's data sharing with this child (see "data sharing over slow links").
     struct DsRecord *ds_fifo; // DS_FIFO records the library has no place for yet
     int ds_head, ds_count;
@@ -388,6 +389,7 @@ static Link *link_open(u16 aid, const HostNetAddr *addr, const u8 *mac) {
     memcpy(l->mac, mac, 6);
     l->heard_ns = l->sent_ns = now_ns();
     l->srtt_ns = -1;
+    l->slow = false;
     return l;
 }
 
@@ -858,7 +860,11 @@ static bool port_ready(u16 port) {
     WMArm9Buf *w = WMi_GetSystemWork();
     if (w->mPortCallbacks[port & 15] == (WirelessPortCallback) WmDataSharingReceiveCallback_Child) {
         const WMDataSharingInfo *ds = w->mPortCallbackArgs[port & 15];
-        if (ds && ((ds->mWriteIndex - ds->mReadIndex) & 3) >= 3) return false;
+        if (ds) {
+            int unread = (ds->mWriteIndex - ds->mReadIndex) & 3;
+            if (unread >= 3) return false;
+            if (ds->mWriteIndex == ds->mSendIndex && unread != 0) return false;
+        }
     }
     return true;
 }
@@ -906,16 +912,20 @@ static void deliver_port_data(u16 port, u16 aid, const u8 *mac, u16 mp_seq, cons
 // Only where the game is known to skip a frame for a missing record: its own data sharing, on port 12. A skipped
 // frame's records are not played, and one byte of the game's record is a message that is sent once (the menus'
 // commands): a set that holds one is never sent short, and a record that holds one is never taken out.
-#define DS_SLOW_NS 8000000          // round trip time from which a link is slow
+#define DS_SLOW_NS 4000000          // round trip time from which a link is slow
 #define DS_GAME_PORT 12
 #define DS_GAME_RECORD 8            // bytes in the game's record
 #define DS_GAME_MESSAGE 5           // offset of the byte that is sent once (SharingSendRecord.mSendByte)
 #define DS_DEADLINE_PERCENT 85      // of the frame: when the parent stops waiting for records
 #define DS_OUT_MAX 30               // sets on their way to a child at most (they wait in its queue of MAX_HELD)
-#define DS_SURPLUS_FRAMES 30        // records waiting for this many frames: one frame of delay is taken out
-#define DS_SURPLUS_FRAMES_DEEP 4    // the same with three or more waiting
+#define DS_SURPLUS_FRAMES 120       // records waiting for this many frames: one frame of delay is taken out
+#define DS_SURPLUS_FRAMES_DEEP 8    // the same with four or more waiting
+#define DS_SPARE_RECORDS 2
 
-static bool link_slow(const Link *l) { return l->srtt_ns >= DS_SLOW_NS; }
+static bool link_slow(const Link *l) {
+    if (l->srtt_ns >= DS_SLOW_NS) ((Link *) l)->slow = true;
+    return l->slow;
+}
 
 // The data sharing a parent runs on the port, or NULL.
 static WMDataSharingInfo *ds_parent(u16 port) {
@@ -972,11 +982,11 @@ static void route_port_data(u16 port, u16 aid, const u8 *mac, u16 mp_seq, const 
 // Takes one frame out of the child's delay when its records have kept waiting: a record equal to the one before it
 // (the same keys held) is dropped, which the game cannot tell from the child having sent one record less.
 static void ds_trim(Link *l) {
-    if (!link_slow(l) || !l->ds_count) {
+    if (!link_slow(l) || l->ds_count < DS_SPARE_RECORDS) {
         l->ds_surplus = 0;
         return;
     }
-    if (++l->ds_surplus < (l->ds_count >= 3 ? DS_SURPLUS_FRAMES_DEEP : DS_SURPLUS_FRAMES)) return;
+    if (++l->ds_surplus < (l->ds_count >= 4 ? DS_SURPLUS_FRAMES_DEEP : DS_SURPLUS_FRAMES)) return;
     const u8 *before = l->ds_last;
     u16 before_size = l->ds_last_size;
     for (int i = 0; i < l->ds_count; i++) {
@@ -1044,7 +1054,7 @@ static void ds_child_pace(void) {
         int unread = ((ds->mWriteIndex - ds->mReadIndex) & 3) + s_held_count;
         if (unread >= 3) {
             int64_t shift = (int64_t) (unread - 2) * 1000000;
-            port_os_shift_vblank(-(shift > 4000000 ? 4000000 : shift));
+            port_os_shift_vblank(-(shift > 1670000 ? 1670000 : shift));
         } else if (unread == 0) {
             port_os_shift_vblank(80000);
         }

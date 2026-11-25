@@ -136,6 +136,23 @@ char vgl_file_cache_path[256];
 		disable_draw_attrib(i) \
 	}
 
+// WPOS has its origin at the top left of the render target: gl_FragCoord.y = WPOS.y * flip.x + flip.y
+#ifdef HAVE_UNFLIPPED_FBOS
+#define FRAG_COORD_FLIPPED GL_TRUE
+#else
+#define FRAG_COORD_FLIPPED is_rendering_display
+#endif
+#define update_frag_coord_flip() \
+	if (p->frag_coord_flip) { \
+		float flip_scale = FRAG_COORD_FLIPPED ? -1.0f : 1.0f; \
+		float flip_offset = FRAG_COORD_FLIPPED ? (float)(is_rendering_display ? DISPLAY_HEIGHT : in_use_framebuffer->height) : 0.0f; \
+		if (p->frag_coord_flip[0] != flip_scale || p->frag_coord_flip[1] != flip_offset) { \
+			p->frag_coord_flip[0] = flip_scale; \
+			p->frag_coord_flip[1] = flip_offset; \
+			dirty_shader_frag_unifs = GL_TRUE; \
+		} \
+	}
+
 #ifndef HAVE_FFP_SHADER_SUPPORT
 #define upload_uniforms() \
 	if (p->vert_uniforms && dirty_shader_vert_unifs) { \
@@ -143,6 +160,7 @@ char vgl_file_cache_path[256];
 		vgl_fast_memcpy(buffer, p->unif_vbuffer, p->vshader->unif_buf_size); \
 		dirty_shader_vert_unifs = GL_FALSE; \
 	} \
+	update_frag_coord_flip() \
 	if (p->frag_uniforms && dirty_shader_frag_unifs) { \
 		void *buffer = vglReserveFragmentUniformBuffer(p->fshader->unif_buf_size); \
 		vgl_fast_memcpy(buffer, p->unif_fbuffer, p->fshader->unif_buf_size); \
@@ -152,7 +170,7 @@ char vgl_file_cache_path[256];
 		ubo *u = p->vert_ubos; \
 		while (u) { \
 			ubo *b = u->alias ? u->alias : u; \
-			sceGxmSetVertexUniformBuffer(gxm_context, b->idx, (uint8_t *)ubo_buf[b->bind]->ptr + ubo_offset[b->bind]); \
+			sceGxmSetVertexUniformBuffer(gxm_context, u->idx, (uint8_t *)ubo_buf[b->bind]->ptr + ubo_offset[b->bind]); \
 			ubo_buf[b->bind]->last_frame = vgl_framecount; \
 			u = (ubo *)u->chain; \
 		} \
@@ -194,6 +212,7 @@ char vgl_file_cache_path[256];
 		vgl_fast_memcpy(buffer, p->unif_vbuffer, p->vshader->unif_buf_size); \
 		dirty_shader_vert_unifs = GL_FALSE; \
 	} \
+	update_frag_coord_flip() \
 	if (p->frag_uniforms && dirty_shader_frag_unifs) { \
 		void *buffer = vglReserveFragmentUniformBuffer(p->fshader->unif_buf_size); \
 		vgl_fast_memcpy(buffer, p->unif_fbuffer, p->fshader->unif_buf_size); \
@@ -203,7 +222,7 @@ char vgl_file_cache_path[256];
 		ubo *u = p->vert_ubos; \
 		while (u) { \
 			ubo *b = u->alias ? u->alias : u; \
-			sceGxmSetVertexUniformBuffer(gxm_context, b->idx, (uint8_t *)ubo_buf[b->bind]->ptr + ubo_offset[b->bind]); \
+			sceGxmSetVertexUniformBuffer(gxm_context, u->idx, (uint8_t *)ubo_buf[b->bind]->ptr + ubo_offset[b->bind]); \
 			ubo_buf[b->bind]->last_frame = vgl_framecount; \
 			u = (ubo *)u->chain; \
 		} \
@@ -370,6 +389,7 @@ typedef struct {
 #ifdef HAVE_GLSL_TEXTURE_SIZE
 	float **samplers_ptr;
 #endif
+	float *frag_coord_flip; // Data of vgl_FragCoordFlip in unif_fbuffer if the fragment shader uses gl_FragCoord
 	uniform *vert_uniforms;
 	uniform *frag_uniforms;
 	uint32_t vert_uniforms_num;
@@ -672,7 +692,7 @@ static inline __attribute__((always_inline)) size_t serialized_shader_size(shade
 	sz += sizeof(uint8_t);
 	block_uniform *b = s->unif_blk;
 	while (b) {
-		sz += sizeof(uint8_t) + strlen(b->name) + 1;
+		sz += sizeof(uint8_t) + strlen(b->name) + 1 + strlen(b->block_name) + 1;
 		b = (block_uniform *)b->chain;
 	}
 	return sz;
@@ -715,6 +735,9 @@ void *serialize_shader(void *out, size_t *sz, shader *s, GLboolean save_bindings
 		size_t len = strlen(b->name) + 1;
 		vgl_fast_memcpy(buf, b->name, len);
 		buf += len;
+		len = strlen(b->block_name) + 1;
+		vgl_fast_memcpy(buf, b->block_name, len);
+		buf += len;
 		*blocks_num = *blocks_num + 1;
 		b = (block_uniform *)b->chain;
 	}
@@ -745,6 +768,9 @@ void unserialize_shader(void *in, size_t sz, shader *s, GLboolean load_bindings)
 		b->idx = *buf++;
 		size_t len = strlen((const char *)buf) + 1;
 		vgl_fast_memcpy(b->name, buf, len);
+		buf += len;
+		len = strlen((const char *)buf) + 1;
+		vgl_fast_memcpy(b->block_name, buf, len);
 		buf += len;
 		b->chain = s->unif_blk;
 		s->unif_blk = b;
@@ -800,6 +826,9 @@ static inline __attribute__((always_inline)) void compile_shader(shader *s, GLbo
 				block_uniform *b = (block_uniform *)vglMalloc(sizeof(block_uniform));
 				b->idx = sceShaccCgGetParameterBufferIndex(param);
 				strcpy(b->name, sceShaccCgGetParameterName(param));
+				// The user type is the block name
+				const char *block_name = sceShaccCgGetParameterUserType(param);
+				strcpy(b->block_name, block_name ? block_name : "");
 				b->chain = s->unif_blk;
 				s->unif_blk = b;
 			}
@@ -2214,6 +2243,7 @@ GLuint glCreateProgram(void) {
 				progs[i].ffp_binds[j] = NULL;
 			}
 #endif
+			progs[i].frag_coord_flip = NULL;
 			progs[i].vshader = NULL;
 			progs[i].fshader = NULL;
 			progs[i].vert_uniforms = NULL;
@@ -2248,6 +2278,13 @@ GLuint glCreateProgram(void) {
 
 GLboolean glIsProgram(GLuint i) {
 	if (progs[i - 1].status != PROG_INVALID) {
+		return GL_TRUE;
+	}
+	return GL_FALSE;
+}
+
+GLboolean glIsShader(GLuint shad) {
+	if (shad > 0 && shad <= MAX_CUSTOM_SHADERS && shaders[shad - 1]) {
 		return GL_TRUE;
 	}
 	return GL_FALSE;
@@ -2664,6 +2701,8 @@ void glLinkProgram(GLuint progr) {
 			}
 		}
 #endif
+		const SceGxmProgramParameter *flip = sceGxmProgramFindParameterByName(p->fshader->prog, "vgl_FragCoordFlip");
+		p->frag_coord_flip = flip ? (float *)((uint8_t *)p->unif_fbuffer + sceGxmProgramParameterGetResourceIndex(flip) * 4) : NULL;
 	}
 
 	// Analyzing vertex shader
@@ -2788,22 +2827,24 @@ GLuint glGetUniformBlockIndex(GLuint prog, const GLchar *uniformBlockName) {
 	// Grabbing passed program
 	program *p = &progs[prog - 1];
 
-	// Getting the desired location
-	ubo *j = p->vert_ubos;
-	while (j) {
-		block_uniform *b = (block_uniform *)j->ptr;
-		if (!strcmp(b->name, uniformBlockName)) {
-			return j->alias ? (GLuint)j->alias : (GLuint)j;
+	// Getting the desired location, by instance name first and then by block name
+	for (int by_block_name = 0; by_block_name < 2; by_block_name++) {
+		ubo *j = p->vert_ubos;
+		while (j) {
+			block_uniform *b = (block_uniform *)j->ptr;
+			if (!strcmp(by_block_name ? b->block_name : b->name, uniformBlockName)) {
+				return j->alias ? (GLuint)j->alias : (GLuint)j;
+			}
+			j = j->chain;
 		}
-		j = j->chain;
-	}
-	j = p->frag_ubos;
-	while (j) {
-		block_uniform *b = (block_uniform *)j->ptr;
-		if (!strcmp(b->name, uniformBlockName)) {
-			return (GLuint)j;
+		j = p->frag_ubos;
+		while (j) {
+			block_uniform *b = (block_uniform *)j->ptr;
+			if (!strcmp(by_block_name ? b->block_name : b->name, uniformBlockName)) {
+				return (GLuint)j;
+			}
+			j = j->chain;
 		}
-		j = j->chain;
 	}
 
 	return GL_INVALID_INDEX;

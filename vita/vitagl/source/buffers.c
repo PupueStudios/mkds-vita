@@ -246,6 +246,38 @@ void glGetQueryObjectuiv(GLuint id, GLenum pname, GLuint *params) {
 	}
 }
 
+void glGetQueryiv(GLenum target, GLenum pname, GLint *params) {
+	THREAD_SAFE()
+
+	switch (target) {
+	case GL_SAMPLES_PASSED:
+	case GL_ANY_SAMPLES_PASSED:
+	case GL_ANY_SAMPLES_PASSED_CONSERVATIVE:
+		break;
+	default:
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, target)
+	}
+
+	switch (pname) {
+	case GL_CURRENT_QUERY:
+		*params = (active_query && active_query->mode == target) ? (GLint)active_query : 0;
+		break;
+	case GL_QUERY_COUNTER_BITS:
+		*params = 32;
+		break;
+	default:
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, pname)
+	}
+}
+
+GLboolean glIsQuery(GLuint id) {
+	// Query names are the address of their slot in the queries pool
+	if (id < (GLuint)queries || id >= (GLuint)&queries[MAX_QUERIES_NUM] || (id - (GLuint)queries) % sizeof(query)) {
+		return GL_FALSE;
+	}
+	return ((query *)id)->id != 0xFF;
+}
+
 void glGenVertexArrays(GLsizei n, GLuint *res) {
 	THREAD_SAFE()
 
@@ -285,6 +317,9 @@ void glDeleteVertexArrays(GLsizei n, const GLuint *gl_arrays) {
 	for (int j = 0; j < n; j++) {
 		if (gl_arrays[j]) {
 			vao *gpu_buf = (vao *)gl_arrays[j];
+			if (cur_vao == gpu_buf) {
+				cur_vao = &default_vao;
+			}
 			mark_as_dirty(gpu_buf->vertex_attrib_pool);
 			vgl_free(gpu_buf);
 		}
@@ -307,6 +342,7 @@ inline __attribute__((always_inline)) void glGenBuffers(GLsizei n, GLuint *res) 
 		}
 #endif
 		gpu_buf->ptr = NULL;
+		gpu_buf->size = 0;
 		gpu_buf->last_frame = OBJ_NOT_USED;
 		res[i] = (GLuint)gpu_buf;
 	}
@@ -773,6 +809,43 @@ void glGetBufferParameteriv(GLenum target, GLenum pname, GLint *params) {
 	}
 	
 	glGetNamedBufferParameteriv((GLuint)gpu_buf, pname, params);
+}
+
+inline void glGetNamedBufferSubData(GLuint buffer, GLintptr offset, GLsizeiptr size, void *data) {
+	THREAD_SAFE()
+
+	vbo *gpu_buf = (vbo *)buffer;
+#ifndef SKIP_ERROR_HANDLING
+	if (!gpu_buf || gpu_buf->mapped) {
+		SET_GL_ERROR(GL_INVALID_OPERATION)
+	} else if (offset < 0 || size < 0 || offset + size > gpu_buf->size) {
+		SET_GL_ERROR(GL_INVALID_VALUE)
+	}
+#endif
+	if (size > 0) {
+		vgl_memcpy(data, (uint8_t *)gpu_buf->ptr + offset, size);
+	}
+}
+
+void glGetBufferSubData(GLenum target, GLintptr offset, GLsizeiptr size, void *data) {
+	THREAD_SAFE()
+
+	vbo *gpu_buf;
+	switch (target) {
+	case GL_ARRAY_BUFFER:
+		gpu_buf = (vbo *)vertex_array_unit;
+		break;
+	case GL_ELEMENT_ARRAY_BUFFER:
+		gpu_buf = (vbo *)cur_vao->index_array_unit;
+		break;
+	case GL_UNIFORM_BUFFER:
+		gpu_buf = (vbo *)uniform_array_unit;
+		break;
+	default:
+		SET_GL_ERROR_WITH_VALUE(GL_INVALID_ENUM, target)
+	}
+
+	glGetNamedBufferSubData((GLuint)gpu_buf, offset, size, data);
 }
 
 // VGL_EXT_gpu_objects_array extension implementation

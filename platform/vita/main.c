@@ -340,6 +340,7 @@ int main(void) {
     sceTouchSetSamplingState(SCE_TOUCH_PORT_FRONT, SCE_TOUCH_SAMPLING_STATE_START);
 
 
+    port_log("Build: %s %s", __DATE__, __TIME__);
     bool memory_ok = port_mem_init();
     char mod[VITA_MOD_NAME], mod_rom[256], save_path[256] = VITA_SAVE_PATH;
     vita_menu_mod_setting(mod, sizeof(mod));

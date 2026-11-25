@@ -409,6 +409,14 @@ void InitKartEmblemPointers(void) {
             } else {
                 path = BuildEmblemNsbtxPath(gRaceSetup->mCurrentEntries[kartIndex].mCharacterIndex);
             }
+#ifdef PLATFORM_PORT
+            if (GetKartModelFile(path) == NULL) {
+                extern void port_log(const char *, ...);
+                port_log("Race: no emblem for player %d, using Mario's", kartIndex);
+                path = BuildEmblemNsbtxPath(0);
+                if (GetKartModelFile(path) == NULL) continue;
+            }
+#endif
             texture = NNS_G3dGetTex(GetKartModelFile(path));
             emblemPltt = OFFSET_PTR(u8, texture, texture->mPlttInfo.mOfsPlttData);
             emblemTex = OFFSET_PTR(u8, texture, texture->mTexInfo.mOfsTex);
@@ -427,6 +435,9 @@ void InitKartEmblemPointers(void) {
 void UploadKartEmblems(void) {
     u16 kartIndex;
     for (kartIndex = 0; (u32) kartIndex < gRaceSetup->mKartCount; kartIndex++) {
+#ifdef PLATFORM_PORT
+        if (gKartNameTags->mEmblemTex[kartIndex] == NULL) continue;
+#endif
         UploadKartEmblem(kartIndex, gKartNameTags->mEmblemTex[kartIndex], gKartNameTags->mEmblemPltt[kartIndex]);
     }
 }

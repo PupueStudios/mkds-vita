@@ -2690,6 +2690,10 @@ void glTexCoord2i(GLint s, GLint t) {
 	glTexCoord2f(s, t);
 }
 
+void glTexCoord2iv(const GLint *v) {
+	glTexCoord2f(v[0], v[1]);
+}
+
 void glTexCoord2s(GLshort s, GLshort t) {
 	glTexCoord2f(s, t);
 }
@@ -3043,7 +3047,7 @@ void glTexEnvxv(GLenum target, GLenum pname, GLfixed *param) {
 inline void glTexEnvi(GLenum target, GLenum pname, GLint param) {
 #ifdef HAVE_DLISTS
 	// Enqueueing function to a display list if one is being compiled
-	if (_vgl_enqueue_list_func(glTexEnvf, DLIST_FUNC_U32_U32_I32, target, pname, param)) {
+	if (_vgl_enqueue_list_func(glTexEnvi, DLIST_FUNC_U32_U32_I32, target, pname, param)) {
 		return;
 	}
 #endif

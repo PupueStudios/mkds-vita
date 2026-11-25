@@ -13,7 +13,7 @@ CC      = $(PREFIX)-gcc
 CXX     = $(PREFIX)-g++
 AR      = $(PREFIX)-gcc-ar
 CFLAGS  = -g -Wl,-q -O3 -ffast-math -mtune=cortex-a9 -mfpu=neon -Wno-incompatible-pointer-types -Wno-stringop-overflow -mfp16-format=ieee \
-	-DVGL_GIT_HASH='"c76f75e"' -Isource
+	-DVGL_GIT_HASH='"788c61d"' -Isource
 ASFLAGS = $(CFLAGS)
 
 ifeq ($(SOFTFP_ABI),1)
@@ -245,7 +245,7 @@ CFLAGS += -DDISABLE_FFP_MULTITEXTURE
 endif
 
 ifeq ($(DISABLE_W_CLAMPING),1)
-CFLAGS += -DISABLE_W_CLAMPING
+CFLAGS += -DDISABLE_W_CLAMPING
 endif
 
 ifeq ($(DEBUG_THREAD_SAFENESS),1)

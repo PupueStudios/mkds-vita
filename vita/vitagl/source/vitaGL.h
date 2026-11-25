@@ -423,6 +423,8 @@ extern "C" {
 #define GL_RGBA16F                                      0x881A
 #define GL_BLEND_EQUATION_ALPHA                         0x883D
 #define GL_POINT_SPRITE                                 0x8861
+#define GL_QUERY_COUNTER_BITS                           0x8864
+#define GL_CURRENT_QUERY                                0x8865
 #define GL_QUERY_RESULT                                 0x8866
 #define GL_QUERY_RESULT_AVAILABLE                       0x8867
 #define GL_MAX_VERTEX_ATTRIBS                           0x8869
@@ -812,16 +814,19 @@ void glGetAttachedShaders(GLuint prog, GLsizei maxCount, GLsizei *count, GLuint 
 GLint glGetAttribLocation(GLuint prog, const GLchar *name);
 void glGetBooleanv(GLenum pname, GLboolean *params);
 void glGetBufferParameteriv(GLenum target, GLenum pname, GLint *params);
+void glGetBufferSubData(GLenum target, GLintptr offset, GLsizeiptr size, void *data);
 void glGetDoublev(GLenum pname, GLdouble *data);
 GLenum glGetError(void);
 void glGetFloatv(GLenum pname, GLfloat *data);
 void glGetFramebufferAttachmentParameteriv(GLenum target, GLenum attachment, GLenum pname, GLint *params);
 void glGetIntegerv(GLenum pname, GLint *data);
 void glGetNamedBufferParameteriv(GLuint buffer, GLenum pname, GLint *params);
+void glGetNamedBufferSubData(GLuint buffer, GLintptr offset, GLsizeiptr size, void *data);
 void glGetPointerv(GLenum pname, void **params);
 void glGetProgramBinary(GLuint program, GLsizei bufSize, GLsizei *length, GLenum *binaryFormat, void *binary);
 void glGetProgramInfoLog(GLuint program, GLsizei maxLength, GLsizei *length, GLchar *infoLog);
 void glGetProgramiv(GLuint program, GLenum pname, GLint *params);
+void glGetQueryiv(GLenum target, GLenum pname, GLint *params);
 void glGetQueryObjectiv(GLuint id, GLenum pname, GLint *params);
 void glGetQueryObjectuiv(GLuint id, GLenum pname, GLuint *params);
 void glGetShaderInfoLog(GLuint handle, GLsizei maxLength, GLsizei *length, GLchar *infoLog);
@@ -840,7 +845,9 @@ void glInterleavedArrays(GLenum format, GLsizei stride, const void *pointer);
 GLboolean glIsEnabled(GLenum cap);
 GLboolean glIsFramebuffer(GLuint fb);
 GLboolean glIsProgram(GLuint program);
+GLboolean glIsQuery(GLuint id);
 GLboolean glIsRenderbuffer(GLuint rb);
+GLboolean glIsShader(GLuint shader);
 GLboolean glIsTexture(GLuint texture);
 void glLightfv(GLenum light, GLenum pname, const GLfloat *params);
 void glLightModelfv(GLenum pname, const GLfloat *params);
@@ -882,6 +889,7 @@ void glMatrixScalef(GLenum matrixMode, GLfloat x, GLfloat y, GLfloat z);
 void glMatrixTranslated(GLenum matrixMode, GLdouble x, GLdouble y, GLdouble z);
 void glMatrixTranslatef(GLenum matrixMode, GLfloat x, GLfloat y, GLfloat z);
 void glMultiDrawArrays(GLenum mode, const GLint *first, const GLsizei *count, GLsizei drawcount);
+void glMultiDrawElements(GLenum mode, const GLsizei *count, GLenum type, const GLvoid *const *indices, GLsizei drawcount);
 void glMultiTexCoord2f(GLenum target, GLfloat s, GLfloat t);
 void glMultiTexCoord2fv(GLenum target, GLfloat *f);
 void glMultiTexCoord2i(GLenum target, GLint s, GLint t);
@@ -965,6 +973,7 @@ void glStencilOpSeparate(GLenum face, GLenum sfail, GLenum dpfail, GLenum dppass
 void glTexCoord2f(GLfloat s, GLfloat t);
 void glTexCoord2fv(GLfloat *f);
 void glTexCoord2i(GLint s, GLint t);
+void glTexCoord2iv(const GLint *v);
 void glTexCoord2s(GLshort s, GLshort t);
 void glTexCoordPointer(GLint size, GLenum type, GLsizei stride, const GLvoid *pointer);
 void glTexEnvf(GLenum target, GLenum pname, GLfloat param);
